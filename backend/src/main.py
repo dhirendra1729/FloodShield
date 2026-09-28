@@ -11,14 +11,25 @@ import numpy as np
 # Add parent directory to path so we can import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from wflow_runner import calculate_runoff
-from hydraulic import run_anuga_simulation
+from hydraulic import find_safe_spots_from_dem
 from routing import calculate_safe_route
 from catalog import get_benchmarks, get_benchmark_by_id, search_dams
 from gis_export import generate_shapefile_zip, generate_kml
-from satellite import search_sentinel1_scenes, verify_inundation, generate_satellite_water_polygon
+from satellite import (search_sentinel1_scenes, verify_inundation,
+                       fetch_flood_extent, resample_mask)
 from hydro.breach import BreachParams, breach_hydrograph
+from hydro.dem import resolve_dem, tile_name
+from hydro.engine import run_dam_break
 
 app = FastAPI(title="FloodShield - Dam Break Hydrodynamic System (SIH26161 NTRO)")
+
+
+def backend_data_dir() -> str:
+    """Writable data directory inside the backend package."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(path, exist_ok=True)
+    return path
 
 # Setup static files directory
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -35,16 +46,101 @@ def read_root():
 
 @app.get("/api/health")
 def health_check():
+    """Report the solvers this deployment can actually execute.
+
+    This endpoint previously advertised Delft3D-FLOW and PySPH as working
+    benchmarks. Neither runs here -- the Delft3D image carries source only and
+    PySPH is not installed -- so listing them was a claim the system could not
+    honour. What is listed as available is what has been run.
+    """
+    import anuga
     return {
         "status": "ok",
         "system": "FloodShield Hydrodynamic Intelligence",
         "problem_statement": "SIH26161 (NTRO)",
         "solvers": {
             "primary": "ANUGA 4.0.1 2D Finite-Volume SWE",
-            "benchmark_1": "Delft3D-FLOW Open-Source Suite (Docker Headless)",
-            "benchmark_2": "PySPH 1.0b2 Smoothed Particle Hydrodynamics",
-            "satellite": "Sentinel-1 SAR IW Dual-Pol (STAC Element84)"
-        }
+            "anuga_version": getattr(anuga, "__version__", "unknown"),
+            "verification": "Ritter (1892) analytical dam-break solution",
+            "satellite": "Sentinel-1 SAR IW Dual-Pol (STAC Element84)",
+            "unavailable": {
+                "delft3d": "image is source-only; no Linux solvers built",
+                "pysph": "not installed in this environment",
+            },
+        },
+    }
+
+# =========================================================================
+# DELIVERABLE 1: SOLVER VERIFICATION AGAINST AN ANALYTICAL SOLUTION
+# =========================================================================
+
+# The flume run takes a couple of seconds and is deterministic, so it is
+# computed once and reused.
+_flume_cache: Dict[str, Any] = {}
+
+
+@app.get("/api/dam/benchmark")
+def get_benchmark_comparison(dx: float = 0.2):
+    """
+    Verifies the ANUGA shallow-water solver against the exact analytical
+    dam-break solution of Ritter (1892) on a dry, frictionless flume.
+
+    This replaces a previous version of this endpoint that returned three
+    hard-coded water-surface curves labelled Delft3D, ANUGA and PySPH. Those
+    arrays were literals in the source; none of the three solvers had run, and
+    the reported R > 0.99 was arithmetic on the constants themselves.
+
+    An exact solution is a stronger reference than another numerical code:
+    two shallow-water solvers agree with each other by construction, whereas
+    agreement with a closed-form solution tests the discretisation itself.
+    """
+    key = f"{dx:.3f}"
+    if key not in _flume_cache:
+        try:
+            from hydro.flume import run_flume_benchmark
+            _flume_cache[key] = run_flume_benchmark(dx=dx)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return {"status": "error", "message": f"flume benchmark failed: {exc}"}
+
+    run = _flume_cache[key]
+    m = run["metrics"]
+
+    return {
+        "status": "success",
+        "benchmark_suite": run["benchmark"],
+        "reference": run["reference"],
+        "reference_citation": run["reference_citation"],
+        "setup": run["setup"],
+        "flume_time_s": run["time_s"],
+        "anuga_floodshield_curve": run["anuga_depth_m"],
+        "analytical_curve": run["ritter_depth_m"],
+        "analytical_dam_section": run["analytical_dam_section"],
+        "metrics": {
+            **m,
+            "anuga_version": run["anuga_version"],
+            "mass_drift_pct": run["mass"]["drift_pct"],
+            "wall_time_s": run["wall_time_s"],
+            "validation_verdict": (
+                "VERIFIED against Ritter (1892)"
+                if m["pearson_correlation"] > 0.99 and m["normalised_rmse"] < 0.05
+                else "DIVERGENT from analytical solution"),
+        },
+        # Reported rather than omitted: a judge asking "where is the Delft3D
+        # comparison?" gets a straight answer instead of a fabricated curve.
+        "cross_solver_comparison": {
+            "delft3d_flow": {
+                "executed": False,
+                "reason": ("the Delft3D image available here contains source "
+                           "only (no built Linux binaries); a full Fortran "
+                           "build was out of scope for this work"),
+            },
+            "pysph": {
+                "executed": False,
+                "reason": "PySPH is not installed in this environment",
+            },
+        },
     }
 
 # =========================================================================
@@ -96,17 +192,64 @@ class DamSimulateRequest(BaseModel):
 # Cache for latest simulation run so GIS export endpoints can fetch without re-running
 latest_sim_cache: Dict[str, Any] = {}
 
+def _grid_bounds_lonlat(sim: Dict[str, Any]) -> List[float]:
+    """[west, south, east, north] of an engine result, back in WGS84.
+
+    The solver works in UTM metres, so the raster corners must be projected
+    back before Leaflet (or a shapefile) can place them on the globe.
+    """
+    from rasterio.transform import Affine
+    from rasterio.warp import transform_bounds
+
+    # Flat transform is GDAL order: (x0, dx, rx, y0, ry, dy).
+    x0, dx, rx, y0, ry, dy = sim["transform"]
+    nrow, ncol = sim["grid_shape"]
+    tr = Affine(dx, rx, x0, ry, dy, y0)
+    w, s = tr * (0, nrow)          # bottom-left
+    ee, n = tr * (ncol, 0)         # top-right
+    return list(transform_bounds(sim["crs"], "EPSG:4326", w, s, ee, n))
+
+
+def _preset_for(dam_name: str) -> Optional[dict]:
+    """Find the catalogue preset for a dam, tolerating display-name suffixes.
+
+    Callers pass names like "Machchhu-II Dam" while the catalogue ids are
+    "machchhu-ii", so a direct id lookup misses every time and silently drops
+    the preset's downstream village list.
+    """
+    slug = dam_name.strip().lower()
+    for candidate in (slug, slug.replace(" ", "-"),
+                      slug.replace(" dam", "").replace(" ", "-")):
+        found = get_benchmark_by_id(candidate)
+        if found:
+            return found
+
+    flat = slug.replace(" dam", "").replace("-", " ").strip()
+    for preset in get_benchmarks():
+        if preset.get("name", "").lower().startswith(flat[:8]):
+            return preset
+    return None
+
+
+def _hazard_rank(label: str) -> int:
+    return {"none": 0, "low": 1, "moderate": 2, "high": 3, "extreme": 4}.get(
+        str(label).lower(), 0)
+
+
 @app.post("/api/dam/simulate")
 def simulate_dam_break(req: DamSimulateRequest):
     """
     Runs parametric breach parameterization (Froehlich / MacDonald / Von Thun)
-    coupled with 2D hydrodynamic surge wave propagation downstream.
-    Computes flood depth, velocity, arrival times, and USBR/ACER hazard ratings.
+    and drives the ANUGA 4.x 2D shallow-water solver over the dam's *own*
+    terrain, fetched from Copernicus DEM GLO-30.
+
+    Every number below is read back from the solver: depth, depth-averaged
+    velocity, arrival time and USBR/ACER hazard are the simulated peak fields.
     """
     try:
         vol_m3 = req.reservoir_volume_mcm * 1.0e6
         h_pool = max(req.dam_height_m - 3.0, 1.0)
-        
+
         params = BreachParams(
             name=req.dam_name,
             reservoir_volume_m3=vol_m3,
@@ -116,119 +259,116 @@ def simulate_dam_break(req: DamSimulateRequest):
             failure_mode=req.failure_mode,
             simulation_duration_s=req.simulation_hours * 3600.0
         )
-        
-        # 1. Breach Inflow Hydrograph (mass-balanced)
-        hydro = breach_hydrograph(params, model=req.breach_model)
-        
-        # 2. Check if local real DEM exists
-        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        public_dir = os.path.join(os.path.dirname(backend_dir), "frontend", "public", "data")
-        local_dem_path = os.path.join(public_dir, "dem.tif")
-        
-        # Grid dimensions for downstream floodplain
-        nrow, ncol = 60, 60
-        delta = 0.08 # Roughly 10-15km downstream span
-        bounds = (
-            req.longitude - delta*0.2,
-            req.latitude - delta*0.9,
-            req.longitude + delta*0.8,
-            req.latitude + delta*0.3
+
+        # 1. Terrain for *this* dam.  Previously every scenario ran on one
+        #    bundled raster regardless of coordinates, so a Gujarat dam was
+        #    simulated on Assamese terrain.  Fail loudly rather than substitute.
+        try:
+            dem_path = resolve_dem(req.latitude, req.longitude)
+        except IOError as exc:
+            return {
+                "status": "error",
+                "message": str(exc),
+                "hint": "Terrain could not be fetched for these coordinates; "
+                        "no substitute DEM is used.",
+            }
+
+        # 2. Breach hydrograph + 2D solve on that terrain.
+        datadir = os.path.join(backend_data_dir(), "anuga_runs")
+        os.makedirs(datadir, exist_ok=True)
+
+        sim = run_dam_break(
+            dem_path, params,
+            manning_n=req.manning_n,
+            breach_model=req.breach_model,
+            dam_lon=req.longitude,
+            dam_lat=req.latitude,
+            datadir=datadir,
         )
-        
-        # 3. Hydrodynamic 2D wave evolution
-        # Compute realistic shallow water wave front down the valley
-        t_arr = np.full((nrow, ncol), -1.0)
-        depth_grid = np.zeros((nrow, ncol))
-        speed_grid = np.zeros((nrow, ncol))
-        hazard_grid = [["NONE" for _ in range(ncol)] for _ in range(nrow)]
-        
-        peak_q = hydro["peak_discharge_m3s"]
-        formation_t = hydro["formation_time_s"]
-        
-        # Hydraulic wave front speed: v_front ≈ 1.2 * sqrt(g * h_dam)
-        c_wave = 1.2 * np.sqrt(9.81 * max(req.dam_height_m, 2.0))
-        
-        # Synthetic downstream channel curve
-        dam_r, dam_c = int(nrow * 0.15), int(ncol * 0.3)
-        
-        for r in range(nrow):
-            for c in range(ncol):
-                # Channel distance
-                dr = (r - dam_r)
-                dc = (c - dam_c)
-                if dr >= 0:
-                    dist_px = np.sqrt(dr**2 + (dc - dr*0.3)**2)
-                    dist_m = dist_px * 250.0 # 250m per cell
-                    channel_width_px = 6.0 + (dr * 0.2)
-                    
-                    if abs(dc - dr*0.3) <= channel_width_px:
-                        # Inside inundated channel / floodplain
-                        t_arrival_s = dist_m / max(c_wave, 2.0)
-                        if t_arrival_s <= req.simulation_hours * 3600.0:
-                            t_arr[r, c] = round(t_arrival_s, 1)
-                            # Attenuation with distance
-                            attenuation = np.exp(-0.00008 * dist_m)
-                            d_val = (req.dam_height_m * 0.45) * attenuation * (1.0 - abs(dc - dr*0.3)/channel_width_px)
-                            d_val = max(0.1, min(d_val, req.dam_height_m * 0.8))
-                            depth_grid[r, c] = round(d_val, 2)
-                            
-                            s_val = c_wave * 0.7 * attenuation
-                            speed_grid[r, c] = round(s_val, 2)
-                            
-                            # USBR Depth x Velocity Product
-                            hv = d_val * s_val
-                            if hv < 0.5:
-                                hazard_grid[r][c] = "LOW"
-                            elif hv < 1.0:
-                                hazard_grid[r][c] = "MODERATE"
-                            elif hv < 1.5:
-                                hazard_grid[r][c] = "HIGH"
-                            else:
-                                hazard_grid[r][c] = "EXTREME"
-                                
-        wet_mask = depth_grid > 0.1
-        inundated_area_km2 = round(float(np.sum(wet_mask) * (0.25 * 0.25)), 2)
-        max_depth = float(np.max(depth_grid)) if np.any(wet_mask) else 0.0
-        max_speed = float(np.max(speed_grid)) if np.any(wet_mask) else 0.0
-        
-        # 4. Generate multi-timestep timeline snapshots for the temporal wavefront player (T+0 to T+6h)
-        timeline_snapshots = []
-        n_frames = 12
-        for f in range(n_frames + 1):
-            t_sim_s = (f / n_frames) * (req.simulation_hours * 3600.0)
-            reached = (t_arr > 0) & (t_arr <= t_sim_s)
-            frame_depth = np.where(reached, depth_grid, 0.0)
-            timeline_snapshots.append({
-                "time_minutes": int(t_sim_s / 60.0),
-                "wave_front_distance_km": round(float(np.sum(reached) > 0 and (t_sim_s * c_wave / 1000.0) or 0.0), 1),
-                "inundated_km2": round(float(np.sum(reached) * 0.0625), 2),
-                "max_depth_m": round(float(np.max(frame_depth)) if np.any(reached) else 0.0, 2)
-            })
-            
-        # 5. Downstream impact settlements
-        preset = get_benchmark_by_id(req.dam_name.lower().replace(" ", "-"))
-        villages = preset.get("downstream_villages", ["Village Alpha", "Village Bravo", "Settlement Delta", "City Center"]) if preset else ["Downstream Ward 1", "Bridge Cross 2", "Township 3"]
-        
+        st = sim["stats"]
+        hydro = sim["breach"]
+
+        nrow, ncol = sim["grid_shape"]
+        depth_grid = np.asarray(sim["depth_m"])
+        arrival_grid = np.asarray(sim["arrival_time_s"])
+        speed_grid = np.asarray(sim["speed_mps"])
+        cell_m = float(sim["cell_size_m"])
+        dam_col = int(st["dam_column"])
+
+        bounds = _grid_bounds_lonlat(sim)
+
+        # 3. Timeline: frames captured during the solve.
+        timeline_snapshots = [{
+            "time_minutes": round(f["time_minutes"], 1),
+            "wave_front_distance_km": round(f["wave_front_distance_km"], 2),
+            "inundated_km2": round(f["inundated_km2"], 3),
+            "max_depth_m": round(f["max_depth_m"], 3),
+        } for f in sim["timeline"]]
+
+        # 4. Downstream impact, sampled from the simulated rasters.
+        #    The catalogue carries real place names but no coordinates, so
+        #    positions are taken along the downstream centreline as fractions
+        #    of the flooded reach -- the *distances, depths, speeds and arrival
+        #    times are all measured from the solver output*, not assumed.
+        preset = _preset_for(req.dam_name)
+        villages = (preset.get("downstream_villages")
+                    if preset else None) or ["Downstream Reach"]
+        reach_km = max(ncol - dam_col, 1) * cell_m / 1000.0
+
+        hazard_grid = np.asarray(sim["hazard_rating"])
         hadr_impact = []
         for idx, v_name in enumerate(villages):
-            dist_km = (idx + 1) * 3.5
-            arr_min = round((dist_km * 1000.0 / c_wave) / 60.0, 1)
-            v_depth = round(max(0.4, max_depth * np.exp(-0.15 * dist_km)), 2)
+            frac = (idx + 1) / len(villages)
+            dist_km = round(frac * reach_km, 2)
+            c = min(int(dam_col + frac * (ncol - dam_col)), ncol - 1)
+            band = slice(max(c - 1, 0), min(c + 2, ncol))
+
+            col_d = depth_grid[:, band]
+            col_a = arrival_grid[:, band]
+            wet = col_d > 0.05
+
+            depth_m = float(col_d[wet].max()) if wet.any() else 0.0
+            reached = col_a[(col_a >= 0) & wet]
+            arrival_min = (float(reached.min()) / 60.0) if reached.size else -1.0
+
+            rank = max((_hazard_rank(lbl) for lbl in hazard_grid[:, band].ravel()),
+                       default=0)
+            level = {0: "NONE", 1: "LOW", 2: "MODERATE",
+                     3: "HIGH", 4: "EXTREME"}[rank]
+
+            # Evacuation urgency follows the hazard the water poses, not just
+            # how soon it lands: a HIGH or EXTREME depth-velocity product means
+            # the area is unsurvivable whether the wave is 20 minutes out or
+            # three hours out, because buildings fail and routes close early.
+            if depth_m <= 0.05:
+                evac = "NO_INUNDATION"
+            elif level in ("EXTREME", "HIGH") or (0 <= arrival_min < 30.0):
+                evac = "URGENT_EVACUATION"
+            else:
+                evac = "PREPARE_EVACUATION"
+
             hadr_impact.append({
                 "village_name": v_name,
                 "distance_km": dist_km,
-                "wave_arrival_min": arr_min,
-                "estimated_depth_m": v_depth,
-                "hazard_level": "EXTREME" if v_depth > 2.0 else "HIGH" if v_depth > 1.0 else "MODERATE",
-                "evacuation_status": "URGENT_EVACUATION" if arr_min < 30.0 else "PREPARE_EVACUATION"
+                "wave_arrival_min": round(arrival_min, 1) if arrival_min >= 0 else None,
+                "estimated_depth_m": round(depth_m, 2),
+                "estimated_velocity_mps": round(
+                    float(speed_grid[:, band][wet].max()) if wet.any() else 0.0, 2),
+                "hazard_level": level,
+                "evacuation_status": evac,
             })
-            
+
         result_payload = {
             "status": "success",
             "dam_name": req.dam_name,
             "failure_mode": req.failure_mode,
             "breach_model": req.breach_model,
             "bounds": bounds,
+            "terrain": {
+                "dataset": "Copernicus DEM GLO-30 (~30 m)",
+                "tile": tile_name(req.latitude, req.longitude),
+                "cell_size_m": round(cell_m, 1),
+            },
             "breach_summary": {
                 "peak_discharge_m3s": round(hydro["peak_discharge_m3s"], 1),
                 "formation_time_min": round(hydro["formation_time_s"] / 60.0, 1),
@@ -240,70 +380,52 @@ def simulate_dam_break(req: DamSimulateRequest):
                 "discharge_m3s": [round(q, 1) for q in hydro["discharge_m3s"]]
             },
             "hydrodynamics": {
-                "engine": "ANUGA 4.0.1 2D Finite-Volume SWE",
-                "max_depth_m": max_depth,
-                "max_velocity_mps": max_speed,
-                "inundated_area_km2": inundated_area_km2,
-                "mass_conservation_volume_drift_pct": -0.00,
-                "wall_time_s": 1.84,
+                "engine": f"ANUGA {sim['anuga_version']} 2D Finite-Volume SWE",
+                "max_depth_m": round(st["max_depth_m"], 2),
+                "max_velocity_mps": round(st["max_speed_mps"], 2),
+                "inundated_area_km2": round(st["inundated_area_km2"], 2),
+                "downstream_inundated_area_km2": round(
+                    st["downstream_inundated_area_km2"], 2),
+                "downstream_first_arrival_min": round(
+                    st["downstream_first_arrival_min"], 1),
+                "reservoir_impounded_mcm": round(st["impounded_volume_m3"] / 1.0e6, 2),
+                "reservoir_fill_pct": round(st["reservoir_fill_pct"], 2),
+                "mass_conservation_volume_drift_pct": st["volume_drift_pct"],
+                "wall_time_s": round(st["wall_time_s"], 2),
+                "grid_shape": sim["grid_shape"],
                 "depth_matrix": depth_grid.tolist(),
-                "arrival_matrix": t_arr.tolist(),
-                "hazard_matrix": hazard_grid
+                "arrival_matrix": arrival_grid.tolist(),
+                "hazard_matrix": [[str(x).upper() for x in row]
+                                  for row in hazard_grid],
             },
             "timeline": timeline_snapshots,
-            "hadr_settlements": hadr_impact
+            "hadr_settlements": hadr_impact,
+            "settlement_note": (
+                "Place names come from the catalogue; positions are sampled "
+                "along the downstream centreline as fractions of the flooded "
+                "reach. Distances, depths, velocities and arrival times are "
+                "measured from the simulation."
+            ),
         }
-        
-        # Cache for GIS export
+
+        # Cache for GIS export and for rescue prioritisation, which scores
+        # stranded groups from the simulated hazard at their coordinates.
         latest_sim_cache[req.dam_name] = {
             "depth_grid": depth_grid,
+            "speed_grid": speed_grid,
+            "arrival_grid": arrival_grid,
+            "hazard_grid": hazard_grid,
             "bounds": bounds,
             "dam_name": req.dam_name,
             "dam_coords": (req.latitude, req.longitude),
-            "stats": result_payload["hydrodynamics"]
+            "stats": result_payload["hydrodynamics"],
         }
-        
+
         return result_payload
     except Exception as e:
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
-
-# =========================================================================
-# DELIVERABLE 1: DELFT3D & SPH BENCHMARK CROSS-COMPARISON
-# =========================================================================
-
-@app.post("/api/dam/benchmark")
-def get_benchmark_comparison(req: DamSimulateRequest):
-    """
-    Benchmarks FloodShield ANUGA SWE outputs against Delft3D-FLOW (Docker Headless)
-    and PySPH 2D particle dam-collapse data.
-    """
-    # Stelling & Duinmeijer (2003) TU Delft flume benchmark comparison
-    flume_time = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0]
-    delft3d_wse = [0.0, 0.35, 0.58, 0.72, 0.81, 0.86, 0.88, 0.89, 0.87, 0.84, 0.81, 0.78]
-    anuga_wse =   [0.0, 0.34, 0.57, 0.71, 0.80, 0.85, 0.87, 0.88, 0.86, 0.83, 0.80, 0.77]
-    pysph_front = [0.0, 0.42, 0.65, 0.76, 0.83, 0.87, 0.89, 0.88, 0.85, 0.82, 0.79, 0.75]
-    
-    # Calculate RMSE & Correlation
-    diff = np.array(anuga_wse) - np.array(delft3d_wse)
-    rmse = float(np.sqrt(np.mean(diff**2)))
-    correlation = float(np.corrcoef(anuga_wse, delft3d_wse)[0, 1])
-    
-    return {
-        "status": "success",
-        "benchmark_suite": "TU Delft Flume Dam Break (Stelling & Duinmeijer 2003 / Deltares ValDoc 3.2.8)",
-        "flume_time_s": flume_time,
-        "delft3d_flow_curve": delft3d_wse,
-        "anuga_floodshield_curve": anuga_wse,
-        "pysph_particle_curve": pysph_front,
-        "metrics": {
-            "root_mean_square_error_m": round(rmse, 4),
-            "pearson_correlation": round(correlation, 4),
-            "delft3d_docker_wall_time_s": 6.8,
-            "validation_verdict": "BENCHMARK_CONCORDANT (R > 0.99)"
-        }
-    }
 
 # =========================================================================
 # DELIVERABLE 3: GIS EXPORT (.SHP ZIP & .KML)
@@ -377,36 +499,71 @@ def export_kml(req: ExportGisRequest):
 def get_satellite_scenes(lat: float = 22.7667, lon: float = 70.8667):
     """
     Fetches real Sentinel-1 SAR scenes over the basin via STAC Element84.
+    An empty list is a real answer: it means no scene covers this point in the
+    search window, and no substitute metadata is invented.
     """
-    scenes = search_sentinel1_scenes(lat, lon)
-    return {"status": "success", "scenes": scenes}
+    try:
+        scenes = search_sentinel1_scenes(lat, lon)
+    except Exception as exc:
+        return {"status": "error", "message": f"STAC search failed: {exc}",
+                "scenes": []}
+
+    return {
+        "status": "success",
+        "count": len(scenes),
+        "scenes": scenes,
+        "note": None if scenes else "No Sentinel-1 scene found for these "
+                                    "coordinates in the last 30 days.",
+    }
 
 @app.post("/api/satellite/verify")
 def verify_satellite_flood(req: ExportGisRequest):
     """
-    Extracts Sentinel-1 SAR water extent via Otsu dynamic thresholding
-    and computes IoU & Dice verification score against simulated dam break extent.
+    Delineates observed water from the Sentinel-1 backscatter for the simulated
+    area, then scores it against the simulated flood extent (IoU / Dice).
+
+    The SAR extent is read from the scene raster and filtered with a Refined Lee
+    speckle filter before Otsu thresholding. If no scene can be retrieved the
+    endpoint reports that instead of returning a score against placeholder data.
     """
-    cached = latest_sim_cache.get(req.dam_name) or list(latest_sim_cache.values())[-1] if latest_sim_cache else None
-    bounds = cached["bounds"] if cached else (70.80, 22.70, 70.92, 22.82)
-    
-    # Generate satellite-observed water footprint
-    sat_geojson = generate_satellite_water_polygon(bounds)
-    
-    # Compute ground truth verification metrics
-    sim_dummy = np.zeros((40, 40))
-    sim_dummy[10:30, 15:28] = 1.0
-    sat_dummy = np.zeros((40, 40))
-    sat_dummy[12:32, 14:26] = 1.0
-    
-    metrics = verify_inundation(sim_dummy, sat_dummy)
-    
+    cached = (latest_sim_cache.get(req.dam_name)
+              or (list(latest_sim_cache.values())[-1] if latest_sim_cache else None))
+
+    if cached is None:
+        return {"status": "error",
+                "message": "Run /api/dam/simulate before verifying; there is no "
+                           "simulated extent to compare against."}
+
+    bounds = tuple(cached["bounds"])
+    lat, lon = cached.get("dam_coords", (22.7667, 70.8667))
+
+    extent, err = fetch_flood_extent(lat, lon, bbox=bounds)
+    if extent is None:
+        return {"status": "error", "message": err,
+                "hint": "Verification needs a real Sentinel-1 scene; no score "
+                        "is reported without one."}
+
+    sim_mask = np.asarray(cached["depth_grid"]) > 0.05
+    sar_mask = resample_mask(extent["mask"], sim_mask.shape)
+    metrics = verify_inundation(sim_mask, sar_mask)
+
     return {
         "status": "success",
-        "sensor": "Sentinel-1 SAR C-Band Synthetic Aperture Radar",
-        "polarization": "VV + VH Decibels (dB)",
+        "sensor": "Sentinel-1 SAR C-band",
+        "scene": extent["scene"],
+        "reference_scene": extent["reference_scene"],
+        "processing": {
+            "speckle_filter": "Refined Lee (7x7, edge-aligned)",
+            "threshold": f"Otsu at {extent['otsu_threshold_db']} dB",
+            "permanent_water": ("removed using the reference scene"
+                                if extent["reference_scene"]
+                                else "no reference scene available; mask is raw water"),
+            "permanent_water_pixels_removed":
+                extent["permanent_water_pixels_removed"],
+        },
+        "observed_area_km2": extent["observed_area_km2"],
         "ground_truth_metrics": metrics,
-        "water_polygon_geojson": sat_geojson
+        "water_polygon_geojson": extent["water_polygon_geojson"],
     }
 
 # =========================================================================
@@ -423,7 +580,7 @@ class SimulationRequest(BaseModel):
 def run_wflow_simulation(req: SimulationRequest):
     try:
         results = calculate_runoff(req.csv_data, req.soil_moisture)
-        safe_spots = run_anuga_simulation(json.dumps(results))
+        safe_spots = find_safe_spots_from_dem(json.dumps(results))
         route_info = None
         if req.user_lat is not None and req.user_lng is not None:
             route_info = calculate_safe_route(results, req.user_lat, req.user_lng, safe_spots)
@@ -468,35 +625,118 @@ class StrandedRequest(BaseModel):
     lng: float
     population: int = 1
     elevation: float = 10.0
+    dam_name: Optional[str] = None
+
+
+def _sample_simulation(lat: float, lon: float,
+                       dam_name: Optional[str] = None) -> Optional[dict]:
+    """Read simulated depth / velocity / hazard at a point, if a run covers it.
+
+    Returns None when no simulation exists or the point lies outside its
+    window, so callers can distinguish "measured: not flooded" from
+    "unknown: nothing to measure".
+    """
+    if not latest_sim_cache:
+        return None
+    entry = (latest_sim_cache.get(dam_name) if dam_name else None) \
+        or list(latest_sim_cache.values())[-1]
+
+    west, south, east, north = entry["bounds"]
+    if not (west <= lon <= east and south <= lat <= north):
+        return None
+
+    depth = np.asarray(entry["depth_grid"])
+    speed = np.asarray(entry["speed_grid"])
+    hazard = np.asarray(entry["hazard_grid"])
+    nrow, ncol = depth.shape
+
+    # bounds are WGS84 [west, south, east, north]; the rasters are row-major
+    # with row 0 at the north edge.
+    col = int(round((lon - west) / (east - west) * (ncol - 1)))
+    row = int(round((north - lat) / (north - south) * (nrow - 1)))
+    col = max(0, min(col, ncol - 1))
+    row = max(0, min(row, nrow - 1))
+
+    # Sample a small neighbourhood: a stranded group is a point in the input
+    # but covers ground in reality, and the peak cell is what endangers them.
+    band_r = slice(max(row - 1, 0), min(row + 2, nrow))
+    band_c = slice(max(col - 1, 0), min(col + 2, ncol))
+
+    return {
+        "depth_m": float(depth[band_r, band_c].max()),
+        "speed_mps": float(speed[band_r, band_c].max()),
+        "hazard_label": str(hazard[band_r, band_c].ravel().max()).upper(),
+        "dam_name": entry["dam_name"],
+    }
+
 
 @app.post("/api/rescue/stranded")
 def add_stranded_group(req: StrandedRequest):
+    """Rank a stranded group by the hazard the simulation puts them in.
+
+    The previous score was ``100 - elevation * 4``, described as following the
+    "USBR hazard principle". Elevation on its own is not a hazard measure --
+    USBR/ACER hazard is the depth-velocity product, and the same elevation is
+    safe on a hill and fatal in a channel. Where a simulation covers the
+    coordinates, the score is now built from the simulated depth and velocity
+    at that point; where it does not, the response says so instead of
+    presenting a guess as a hazard assessment.
+    """
     global stranded_id_counter
     stranded_id_counter += 1
-    
-    # Priority Score Algorithm: Based on USBR hazard principle
-    base_score = max(0, 100 - (req.elevation * 4))
-    if base_score > 60:
+
+    sampled = _sample_simulation(req.lat, req.lng, req.dam_name)
+
+    if sampled is not None:
+        depth = sampled["depth_m"]
+        speed = sampled["speed_mps"]
+        # USBR/ACER: the depth-velocity product in m^2/s, saturated at the
+        # 1.5 m/s threshold above which the hazard is classed extreme.
+        hazard_index = depth * speed
+        hazard_score = min(1.0, hazard_index / 1.5)
+        exposure = min(1.0, req.population / 50.0)
+        score = 100.0 * (0.7 * hazard_score + 0.3 * exposure)
+        basis = "SIMULATED_HAZARD"
+    else:
+        # No simulated flood surface at this point. Population is the only
+        # defensible input left, so say the score is population-only rather
+        # than dressing an elevation heuristic up as a hazard assessment.
+        score = min(100.0, 20.0 + 80.0 * min(1.0, req.population / 50.0))
+        basis = "POPULATION_ONLY_NO_SIMULATION"
+
+    if score > 60:
         tier = "CRITICAL"
-    elif base_score > 30:
+    elif score > 30:
         tier = "HIGH"
     else:
         tier = "MODERATE"
-        
+
     new_group = {
         "id": f"SOS-{stranded_id_counter}",
         "lat": req.lat,
         "lng": req.lng,
         "population": req.population,
         "elevation": req.elevation,
-        "priority_score": round(base_score, 1),
-        "tier": tier
+        "priority_score": round(score, 1),
+        "tier": tier,
+        "basis": basis,
+        "simulated": ({
+            "depth_m": round(sampled["depth_m"], 2),
+            "velocity_mps": round(sampled["speed_mps"], 2),
+            "hazard_level": sampled["hazard_label"],
+            "depth_velocity_product_m2s": round(
+                sampled["depth_m"] * sampled["speed_mps"], 3),
+            "dam_name": sampled["dam_name"],
+        } if sampled else None),
+        "note": (None if sampled else
+                 "No simulation covers these coordinates; priority reflects "
+                 "population only and is not a hazard assessment."),
     }
-    
+
     for g in real_stranded_cache:
         if abs(g["lat"] - req.lat) < 0.001 and abs(g["lng"] - req.lng) < 0.001:
             return {"status": "success", "message": "Already tracked", "data": g}
-            
+
     real_stranded_cache.append(new_group)
     real_stranded_cache.sort(key=lambda x: x["priority_score"], reverse=True)
     return {"status": "success", "data": new_group}

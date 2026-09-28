@@ -27,10 +27,11 @@ if [ -f "$BACKEND_DIR/.venv/bin/python" ]; then
     PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
 elif [ -f "$BACKEND_DIR/venv/bin/python" ]; then
     PYTHON_BIN="$BACKEND_DIR/venv/bin/python"
-elif [ -d "$HOME/.hermes/cache/scratch/fsenv" ]; then
-    PYTHON_BIN="$HOME/.hermes/cache/scratch/fsenv/bin/python"
 else
     PYTHON_BIN="python3"
+    echo -e "${YELLOW}No backend virtualenv found; falling back to $PYTHON_BIN.${NC}"
+    echo -e "${YELLOW}ANUGA will not import unless it is installed in that interpreter.${NC}"
+    echo -e "${YELLOW}Create one with: python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt${NC}"
 fi
 
 echo -e "${GREEN}[1/3] Using Python environment:${NC} $PYTHON_BIN"

@@ -115,7 +115,7 @@ def generate_kml(
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         '  <Document>',
         f'    <name>{dam_name} Dam Break Inundation Zone</name>',
-        '    <description>Simulated via FloodShield Hydrodynamic Engine (ANUGA 2D / Delft3D Benchmark) for SIH26161 (NTRO)</description>',
+        '    <description>Simulated via the FloodShield ANUGA 4.0.1 2D shallow-water solver for SIH26161 (NTRO)</description>',
         '    <Style id="dam_icon">',
         '      <IconStyle><scale>1.3</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/caution.png</href></Icon></IconStyle>',
         '    </Style>',

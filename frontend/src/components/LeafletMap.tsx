@@ -14,9 +14,44 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+// ---------------------------------------------------------------------------
+// Pilot basin extent.
+//
+// The rainfall/runoff dashboard runs on one bundled DEM (public/data/dem.tif),
+// which covers the Bhuragaon reach of the Brahmaputra in Assam. The extent
+// below must match that raster. It previously appeared as three separate
+// literals -- the heatmap rectangle, the map centre and the default reset
+// position -- which could drift apart silently. Everything now derives from
+// these two corners, and the real fix at the next iteration is to read the
+// extent from the georaster itself rather than restate it here.
+// ---------------------------------------------------------------------------
+export const PILOT_BASIN = {
+  name: "Bhuragaon, Assam",
+  southWest: [26.322, 92.192] as [number, number],
+  northEast: [26.421, 92.342] as [number, number],
+};
+export const PILOT_BASIN_BOUNDS: [number, number][] = [
+  PILOT_BASIN.southWest, PILOT_BASIN.northEast,
+];
+export const PILOT_BASIN_CENTER: [number, number] = [
+  (PILOT_BASIN.southWest[0] + PILOT_BASIN.northEast[0]) / 2,
+  (PILOT_BASIN.southWest[1] + PILOT_BASIN.northEast[1]) / 2,
+];
+
+// Extent of the bundled raster tiles in public/data (dem_color.png,
+// flood_depth.png, lulc_color.png). Wider than PILOT_BASIN above -- the raster
+// covers the whole Bhuragaon reach so the map can be panned past the box the
+// dashboard actually analyses. The three ImageOverlays share this one constant;
+// it was previously written out inline three times, where a correction to one
+// would have silently misregistered the other two against the basemap.
+export const DEM_RASTER_BOUNDS: [[number, number], [number, number]] = [
+  [26.2501389, 91.9968055],
+  [26.5329166, 92.5465277],
+];
+
 const PrecipitationHeatmap = ({ rainfall }: { rainfall: number | null }) => {
   const map = useMap();
-  
+
   useEffect(() => {
     // Create a custom pane for the heatmap to guarantee it renders above ALL raster/vector layers
     if (!map.getPane('heatmapPane')) {
@@ -39,14 +74,11 @@ const PrecipitationHeatmap = ({ rainfall }: { rainfall: number | null }) => {
   else if (rainfall < 100) color = '#f97316'; // Orange
   else color = '#ef4444'; // Red
 
-  // Exact bounding box matching the Bhuragaon DEM Raster image
-  const bounds: [number, number][] = [[26.322, 92.192], [26.421, 92.342]];
-
   return (
-    <Rectangle 
+    <Rectangle
        key={`heatmap-${rainfall}`}
-       bounds={bounds} 
-       pathOptions={{ fillColor: color, fillOpacity: opacity, stroke: false, pane: 'heatmapPane' }} 
+       bounds={PILOT_BASIN_BOUNDS}
+       pathOptions={{ fillColor: color, fillOpacity: opacity, stroke: false, pane: 'heatmapPane' }}
     />
   );
 };
@@ -119,8 +151,7 @@ const RasterLayer = ({ url, options }: { url: string; options?: any }) => {
 };
 
 export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userLocation, setUserLocation, routeGeoJSON, strandedGroups, activeRescueGroup, showRescueLayer }: { layers: any, hoveredRainfall?: number | null, aiSafeSpots?: any[], userLocation?: [number, number] | null, setUserLocation?: (loc: [number, number]) => void, routeGeoJSON?: any, strandedGroups?: any[], activeRescueGroup?: any, showRescueLayer?: boolean }) {
-  // Exact center of Bhuragaon, Assam based on GeoJSON limits
-  const bhuragaonPosition: [number, number] = [26.3715, 92.267]; 
+  const bhuragaonPosition = PILOT_BASIN_CENTER;
   
   const [roadsData, setRoadsData] = useState(null);
   const [landuseData, setLanduseData] = useState(null);
@@ -218,7 +249,7 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
 
         {/* Raster Layer: DEM */}
         {layers.dem && (
-          <ImageOverlay url="/data/dem_color.png" bounds={[[26.2501389, 91.9968055], [26.5329166, 92.5465277]]} opacity={0.65} />
+          <ImageOverlay url="/data/dem_color.png" bounds={DEM_RASTER_BOUNDS} opacity={0.65} />
         )}
 
 
@@ -229,7 +260,7 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
         {layers.floodDepth && (
           <ImageOverlay 
             url={`/data/flood_depth.png?t=${new Date().getTime()}`}
-            bounds={[[26.2501389, 91.9968055], [26.5329166, 92.5465277]]}
+            bounds={DEM_RASTER_BOUNDS}
             opacity={0.7}
           />
         )}
@@ -240,7 +271,7 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
         {layers.lulc && (
           <ImageOverlay 
             url="/data/lulc_color.png?v=3" 
-            bounds={[[26.2501389, 91.9968055], [26.5329166, 92.5465277]]}
+            bounds={DEM_RASTER_BOUNDS}
             opacity={0.65}
           />
         )}

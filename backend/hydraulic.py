@@ -1,3 +1,16 @@
+"""Flat-water-level refuge finder for the rainfall/runoff dashboard.
+
+Given an SCS-CN runoff time series, this picks a single still-water surface
+elevation from the peak discharge, floods every DEM cell below it, and returns
+the large contiguous dry areas as candidate refuges.
+
+This is a *bathtub* approximation, not a hydrodynamic solve: the water surface
+is flat and the mapping from discharge to level is a fitted severity curve
+(``peak_discharge / 150``), not a rating curve. It is adequate for picking
+high ground, and is used only by the rainfall safe-route feature. The dam-break
+deliverable uses the ANUGA shallow-water solver in ``hydro/engine.py`` instead.
+"""
+
 import os
 import json
 import numpy as np
@@ -7,7 +20,7 @@ import matplotlib.pyplot as plt
 import rasterio
 from scipy import ndimage
 
-def run_anuga_simulation(discharge_data_json):
+def find_safe_spots_from_dem(discharge_data_json):
     discharge_data = json.loads(discharge_data_json)
     
     discharges = [float(row.get('discharge', 0)) for row in discharge_data]
@@ -89,5 +102,5 @@ def run_anuga_simulation(discharge_data_json):
     # Sort by area (descending) and keep only the top 8 largest safe spots to avoid clutter
     safe_spots = sorted(safe_spots, key=lambda x: x["area"], reverse=True)[:8]
     
-    print(f"ANUGA Simulation Complete. Found {len(safe_spots)} major Safe Zones.")
+    print(f"Refuge search complete. Found {len(safe_spots)} major safe zones.")
     return safe_spots

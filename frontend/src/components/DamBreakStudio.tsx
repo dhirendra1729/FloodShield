@@ -99,7 +99,7 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
         }
         
         // Also fetch benchmark data
-        fetchBenchmarkComparison(payload);
+        fetchBenchmarkComparison();
         // Also fetch satellite data
         fetchSatelliteVerification(damDetails?.name || selectedDam);
       } else {
@@ -112,21 +112,18 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
     }
   };
 
-  const fetchBenchmarkComparison = async (payload: any) => {
+  const fetchBenchmarkComparison = async () => {
     try {
-      const res = await fetch('/api/dam/benchmark', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const res = await fetch('/api/dam/benchmark');
       const data = await res.json();
       if (data.status === 'success') {
-        // Format for Recharts
-        const chartData = data.flume_time_s.map((t: number, i: number) => ({
+        // Format for Recharts. The comparison is against the exact analytical
+        // solution, not another solver, so the two series are the numerical
+        // result and the closed-form reference.
+        const chartData = (data.flume_time_s || []).map((t: number, i: number) => ({
           time: t,
-          delft3d: data.delft3d_flow_curve[i],
           anuga: data.anuga_floodshield_curve[i],
-          pysph: data.pysph_particle_curve[i]
+          analytical: data.analytical_curve[i],
         }));
         setBenchmarkData({ ...data, chartData });
       }
@@ -143,11 +140,12 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
         body: JSON.stringify({ dam_name: damName })
       });
       const data = await res.json();
-      if (data.status === 'success') {
-        setSatelliteData(data);
-      }
+      // Keep the error envelope too: "no scene is available" is a real result
+      // and the panel must say so rather than fall back to placeholder scores.
+      setSatelliteData(data);
     } catch (err) {
       console.error("Satellite error:", err);
+      setSatelliteData({ status: 'error', message: String(err) });
     }
   };
 
@@ -568,11 +566,13 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
               <div className="flex flex-col gap-3">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-on-surface-variant font-label-caps">
-                    TU Delft Flume Dam Break Benchmark (Stelling & Duinmeijer 2003 / Deltares ValDoc 3.2.8)
+                    Flume Dam Break vs Ritter (1892) Exact Solution — depth at a gauge 10 m downstream
                   </span>
                   <span className="text-emerald-400 font-data-mono font-bold flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Pearson R = {benchmarkData?.metrics?.pearson_correlation || "0.998"} | RMSE = {benchmarkData?.metrics?.root_mean_square_error_m || "0.0096"}m
+                    {benchmarkData
+                      ? `Pearson R = ${benchmarkData.metrics?.pearson_correlation} | RMSE = ${benchmarkData.metrics?.rmse_m}m`
+                      : "running verification…"}
                   </span>
                 </div>
                 <div className="h-[230px] w-full">
@@ -583,11 +583,15 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
                       <YAxis tick={{ fontSize: 10, fill: '#798098' }} unit="m" />
                       <Tooltip contentStyle={{ backgroundColor: '#131315', border: '1px solid rgba(255,255,255,0.2)', fontSize: '11px' }} />
                       <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                      <Line type="monotone" dataKey="delft3d" stroke="#adc6ff" strokeWidth={2} name="Delft3D-FLOW (Docker Headless)" dot={false} />
+                      <Line type="monotone" dataKey="analytical" stroke="#adc6ff" strokeWidth={2} name="Ritter (1892) exact solution" dot={false} />
                       <Line type="monotone" dataKey="anuga" stroke="#22c55e" strokeWidth={2} name="FloodShield (ANUGA 4.0.1 SWE)" dot={false} strokeDasharray="4 4" />
-                      <Line type="monotone" dataKey="pysph" stroke="#ffb690" strokeWidth={1.5} name="PySPH 1.0b2 Particle Front" dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+                <div className="text-[10px] text-on-surface-variant/70 leading-relaxed">
+                  Cross-solver comparison against Delft3D-FLOW and PySPH is reported as
+                  not executed: the Delft3D image here contains source only, and PySPH
+                  is not installed. No substitute curves are plotted.
                 </div>
               </div>
             )}
@@ -595,42 +599,133 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
             {/* TAB 4: SATELLITE VERIFICATION */}
             {activeTab === 'satellite' && (
               <div className="flex flex-col gap-3">
+                {/* Badges read the real metrics. They previously fell back to
+                    hard-coded strings ("65.6"%, "0.79"), which made an
+                    unverified run look like a scored one. */}
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-on-surface-variant font-label-caps">
-                    Sentinel-1 SAR C-Band Dual-Pol Radar (Otsu Backscatter Delineation)
+                    Sentinel-1 SAR C-band — Refined Lee filter + Otsu delineation
                   </span>
                   <div className="flex gap-2">
-                    <span className="bg-status-success/20 text-status-success px-2 py-0.5 rounded font-data-mono text-[10px] border border-status-success/30">
-                      IoU: {satelliteData?.ground_truth_metrics?.overlap_percentage || "65.6"}%
-                    </span>
-                    <span className="bg-primary/20 text-primary px-2 py-0.5 rounded font-data-mono text-[10px] border border-primary/30">
-                      F1: {satelliteData?.ground_truth_metrics?.dice_f1 || "0.79"}
-                    </span>
+                    {satelliteData?.ground_truth_metrics ? (
+                      <>
+                        <span className="bg-status-success/20 text-status-success px-2 py-0.5 rounded font-data-mono text-[10px] border border-status-success/30">
+                          IoU: {satelliteData.ground_truth_metrics.overlap_percentage}%
+                        </span>
+                        <span className="bg-primary/20 text-primary px-2 py-0.5 rounded font-data-mono text-[10px] border border-primary/30">
+                          F1: {satelliteData.ground_truth_metrics.dice_f1}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="bg-white/5 text-on-surface-variant px-2 py-0.5 rounded font-data-mono text-[10px] border border-white/10">
+                        NOT VERIFIED
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div className="p-4 rounded-lg bg-surface-container-high/40 border border-white/5 flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-primary">
-                    <Satellite className="w-4 h-4" /> Near Real-Time Sensor Telemetry
+                {satelliteData?.status === 'success' ? (
+                  <>
+                    <div className="p-4 rounded-lg bg-surface-container-high/40 border border-white/5 flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                        <Satellite className="w-4 h-4" /> Scene Actually Processed
+                      </div>
+                      <p className="text-[11px] font-data-mono text-on-surface break-all">
+                        {satelliteData.scene?.id}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 mt-1 font-data-mono text-[11px]">
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Acquired</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.scene?.datetime || "—"}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Orbit</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.scene?.orbit_direction || "—"}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Collection</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.scene?.collection || "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-lg bg-surface-container-high/40 border border-white/5 flex flex-col gap-2">
+                      <div className="text-xs font-semibold text-primary">Detection &amp; Scoring</div>
+                      <div className="grid grid-cols-2 gap-2 font-data-mono text-[11px]">
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Otsu threshold</span>
+                          {/* Reported as relative: the STAC assets carry no
+                              calibration vector, so this is not an absolute
+                              backscatter level. */}
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.processing?.threshold || "—"}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Observed water</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.observed_area_km2 != null
+                              ? `${satelliteData.observed_area_km2} km²` : "—"}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Permanent water removed</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.reference_scene
+                              ? `${satelliteData.processing?.permanent_water_pixels_removed ?? 0} px`
+                              : "no reference scene"}
+                          </span>
+                        </div>
+                        <div className="p-2 bg-black/30 rounded border border-white/5">
+                          <span className="text-on-surface-variant block text-[9px]">Verdict</span>
+                          <span className="text-on-surface font-bold">
+                            {satelliteData.ground_truth_metrics?.status || "—"}
+                          </span>
+                        </div>
+                      </div>
+                      {satelliteData.water_polygon_geojson && (
+                        <button
+                          onClick={() => {
+                            const blob = new Blob(
+                              [JSON.stringify(satelliteData.water_polygon_geojson)],
+                              { type: 'application/geo+json' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${selectedDam}_observed_water.geojson`;
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                          }}
+                          className="mt-1 self-start text-[10px] font-data-mono px-2 py-1 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          Download observed water (.geojson)
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-4 rounded-lg bg-surface-container-high/40 border border-status-warning/30 flex flex-col gap-2">
+                    <div className="text-xs font-semibold text-status-warning">
+                      Verification unavailable — no score reported
+                    </div>
+                    <p className="text-xs text-on-surface-variant leading-relaxed">
+                      {satelliteData?.message ||
+                        "Run a simulation to produce an extent, then request verification."}
+                    </p>
+                    <p className="text-[10px] text-on-surface-variant/70 leading-relaxed">
+                      IoU and Dice are only meaningful against a real Sentinel-1
+                      acquisition over the simulated footprint. Where none is
+                      available the pipeline reports that rather than scoring
+                      against placeholder data.
+                    </p>
                   </div>
-                  <p className="text-xs text-on-surface-variant leading-relaxed">
-                    Live Sentinel-1 SAR acquisition queried via STAC Element84 over {damDetails?.river || "basin"}. All-weather microwave penetration pierces monsoon cloud cover, isolating high-contrast specular water reflections.
-                  </p>
-                  <div className="grid grid-cols-3 gap-2 mt-2 font-data-mono text-[11px]">
-                    <div className="p-2 bg-black/30 rounded border border-white/5">
-                      <span className="text-on-surface-variant block text-[9px]">Polarization</span>
-                      <span className="text-on-surface font-bold">VV + VH (dB)</span>
-                    </div>
-                    <div className="p-2 bg-black/30 rounded border border-white/5">
-                      <span className="text-on-surface-variant block text-[9px]">Dynamic Threshold</span>
-                      <span className="text-on-surface font-bold">-16.8 dB (Otsu)</span>
-                    </div>
-                    <div className="p-2 bg-black/30 rounded border border-white/5">
-                      <span className="text-on-surface-variant block text-[9px]">Verification Status</span>
-                      <span className="text-emerald-400 font-bold">CONCORDANT</span>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -653,16 +748,31 @@ export default function DamBreakStudio({ onSimulationComplete, onExportGis }: an
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                         <td className="py-2.5 font-bold text-on-surface">{v.village_name}</td>
                         <td className="py-2.5 text-secondary">{v.distance_km} km</td>
-                        <td className="py-2.5 text-status-warning font-bold">{v.wave_arrival_min} min</td>
+                        <td className="py-2.5 text-status-warning font-bold">
+                          {v.wave_arrival_min == null ? "not reached" : `${v.wave_arrival_min} min`}
+                        </td>
                         <td className="py-2.5 text-on-surface">{v.estimated_depth_m} m</td>
                         <td className="py-2.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${v.hazard_level === 'EXTREME' ? 'bg-status-emergency/20 text-status-emergency border border-status-emergency/40' : 'bg-status-warning/20 text-status-warning border border-status-warning/40'}`}>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                            v.hazard_level === 'EXTREME'
+                              ? 'bg-status-emergency/20 text-status-emergency border-status-emergency/40'
+                              : v.hazard_level === 'NONE'
+                              ? 'bg-white/5 text-secondary border-white/10'
+                              : 'bg-status-warning/20 text-status-warning border-status-warning/40'
+                          }`}>
                             {v.hazard_level}
                           </span>
                         </td>
                         <td className="py-2.5">
-                          <span className="text-status-emergency font-bold text-[10px] flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" /> {v.evacuation_status}
+                          <span className={`font-bold text-[10px] flex items-center gap-1 ${
+                            v.evacuation_status === 'NO_INUNDATION'
+                              ? 'text-secondary'
+                              : 'text-status-emergency'
+                          }`}>
+                            {v.evacuation_status !== 'NO_INUNDATION' && (
+                              <AlertTriangle className="w-3 h-3" />
+                            )}
+                            {v.evacuation_status}
                           </span>
                         </td>
                       </tr>

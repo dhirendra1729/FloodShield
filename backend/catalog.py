@@ -13,6 +13,14 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DAM_GEOJSON_PATH = os.path.join(DATA_DIR, "dam.geojson")
 
 # Curated benchmark presets with authoritative CWC NRLD / NDSA parameters
+#
+# These three historical cases are mirrored in the Tana workspace as "Dam
+# Benchmark" records. This file is the authority: the values below are what
+# /api/dam/simulate actually solves with, so a record that disagrees with them
+# describes a run the system cannot reproduce. Mirrors:
+#   Machchhu-II  tana:text:01m3mhj99vx4p8qcz0b3q6dyap
+#   Teesta-III   tana:text:01m3mhj9ayrcmayd77pgeee0ry
+#   Rishiganga   tana:text:01m3mhj9c0p3fkfk1jy9kfehqc
 BENCHMARK_PRESETS: List[Dict[str, Any]] = [
     {
         "id": "machchhu-ii",
