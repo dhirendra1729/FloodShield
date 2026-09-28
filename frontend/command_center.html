@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FloodShield - Main Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed-dim": "#bec6e0",
+                        "primary-container": "#0f172a",
+                        "surface-container-low": "#1b1b1d",
+                        "surface-glass": "rgba(15, 23, 42, 0.75)",
+                        "on-primary-container": "#798098",
+                        "outline-variant": "#45464d",
+                        "tertiary-fixed": "#d8e2ff",
+                        "surface-container-lowest": "#0e0e10",
+                        "secondary": "#bec6e0",
+                        "on-tertiary-fixed-variant": "#2c4677",
+                        "secondary-container": "#3e465c",
+                        "status-emergency": "#ffb4ab",
+                        "background": "#131315",
+                        "on-primary-fixed": "#131b2e",
+                        "surface": "#131315",
+                        "inverse-surface": "#e5e1e4",
+                        "surface-dim": "#131315",
+                        "surface-bright": "#39393b",
+                        "on-primary": "#283044",
+                        "on-secondary": "#283044",
+                        "surface-container-highest": "#353437",
+                        "status-success": "#bec6e0",
+                        "tertiary": "#adc6ff",
+                        "on-secondary-container": "#adb5ce",
+                        "surface-variant": "#353437",
+                        "secondary-fixed": "#dae2fd",
+                        "surface-container": "#1f1f21",
+                        "surface-container-high": "#2a2a2c",
+                        "error-container": "#93000a",
+                        "on-tertiary": "#122f5f",
+                        "on-error": "#690005",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "on-secondary-fixed-variant": "#3e465c",
+                        "surface-tint": "#bec6e0",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary-fixed": "#131b2e",
+                        "on-tertiary-container": "#6880b5",
+                        "outline": "#909097",
+                        "on-background": "#e5e1e4",
+                        "inverse-on-surface": "#303032",
+                        "on-surface": "#e5e1e4",
+                        "on-surface-variant": "#c6c6cd",
+                        "border-glass": "rgba(255, 255, 255, 0.12)",
+                        "primary-fixed": "#dae2fd",
+                        "on-primary-fixed-variant": "#3f465c",
+                        "inverse-primary": "#565e74",
+                        "error": "#ffb4ab",
+                        "primary": "#bec6e0",
+                        "tertiary-fixed-dim": "#adc6ff",
+                        "status-warning": "#ffb690",
+                        "on-tertiary-fixed": "#001a42",
+                        "tertiary-container": "#00163a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "panel-padding": "24px",
+                        "component-gap": "16px",
+                        "margin-page": "48px",
+                        "unit": "4px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "display-xl": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-mono": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-caps": ["JetBrains Mono"],
+                        "title-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "display-xl": ["64px", { "lineHeight": "72px", "letterSpacing": "-0.03em", "fontWeight": "800" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-mono": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700" }],
+                        "title-lg": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .map-bg {
+            background-color: #0b0c10;
+            background-image: 
+                linear-gradient(rgba(30, 40, 50, 0.5) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(30, 40, 50, 0.5) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .pulse-alert {
+            animation: pulse-border 2s infinite;
+        }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(255, 180, 171, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 180, 171, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 180, 171, 0); }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md h-screen w-screen overflow-hidden flex flex-col antialiased">
+<!-- Global Map Canvas -->
+<div class="absolute inset-0 z-0 map-bg">
+<img class="w-full h-full object-cover opacity-60 mix-blend-screen" data-alt="A high-contrast, dark-mode satellite map view of Miami coastal region, stylized with cartographic precision. Bright cyan and deep blue accents highlight water bodies and critical infrastructure against a slate and obsidian background, evoking a sophisticated tactical HUD interface." data-location="Miami" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-9nkjwld_E_33RYyYINN4KYlu0duE8_iuqU8s9nbk2Kcm0dJXwmjRs4ZLQVHXjIKKs_h4e5wlzK7ydXkD0NoFiD_uM03VrbkKpAxqnNWG2YoLibtY76OsJ_CN1lKKI3Y8XnqVk2bUpmr22ZiqgYTYXbKKsObA4QouX3IUhD-5odbLu2n6eg8FdGcx27lmLLKP8n0rEwpwGhlsZgpjeLIleVztj1PKRpzmrVjVk4i5HIcf-pS-V13zWA"/>
+</div>
+<div class="absolute inset-0 z-0 bg-gradient-to-t from-background/90 via-background/40 to-transparent pointer-events-none"></div>
+<!-- Top Navigation Bar (Generated from JSON) -->
+<header class="bg-surface-glass fixed top-0 w-full z-50 backdrop-blur-24 border-b border-glass shadow-2xl flex justify-between items-center h-16 px-gutter">
+<div class="flex items-center gap-component-gap">
+<span class="font-display-lg text-display-lg font-black text-primary tracking-tighter">FloodShield</span>
+</div>
+<div class="flex items-center gap-component-gap">
+<!-- Search placeholder (on left in original JSON, adapted to center/right here for layout balance) -->
+<div class="relative hidden md:block w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+<input class="w-full bg-surface-container-high/50 border border-glass rounded font-data-mono text-data-mono text-on-surface pl-10 pr-4 py-1.5 focus:border-tertiary focus:outline-none focus:ring-1 focus:ring-tertiary transition-colors bg-transparent placeholder-on-surface-variant" placeholder="Search coordinates..." type="text"/>
+</div>
+<!-- Trailing Icons -->
+<button class="text-on-surface-variant hover:bg-white/5 transition-colors cursor-pointer active:scale-95 transition-transform p-2 rounded-full relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="text-on-surface-variant hover:bg-white/5 transition-colors cursor-pointer active:scale-95 transition-transform p-2 rounded-full">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button class="text-primary hover:bg-white/5 transition-colors cursor-pointer active:scale-95 transition-transform p-2 rounded-full">
+<span class="material-symbols-outlined">wifi_tethering</span>
+</button>
+<!-- Profile -->
+<div class="ml-4 h-8 w-8 rounded-full overflow-hidden border border-glass">
+<img class="w-full h-full object-cover" data-alt="A small, stylized avatar portrait of a command center dispatcher, lit by blue monitor glow, minimalist high-tech style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsyNuFXwIdBh0M0RnSg1K1WfcnaujnP5sZPxro4lIGRdvCDiZQLyQLgveLdJV6TeoaG8BvroIKXRzXkgjFXrtWpNkUx43hD4IZ11NXVZMsgatqII3Gx_0homyAru_g7AhEzsGCtueSu9FNYER8n4CJ4fxWillxmEKeF0Y5NeQTCcW25gTZK6NXa4Z9lTbOJNMYN7PJW19EGcf9d-ZQoHmU5qSRQDIS6_-kzK2Q_UxRw0HHG_CVs9sSCA"/>
+</div>
+</div>
+</header>
+<!-- Main Workspace Area -->
+<main class="relative z-10 flex-1 flex mt-16 p-margin-page gap-gutter h-[calc(100vh-64px)] pointer-events-none">
+<!-- Left Panel: Side Navigation (Generated from JSON) -->
+<nav class="bg-surface-glass backdrop-blur-24 border border-glass shadow-xl flex flex-col py-panel-padding w-64 rounded-lg h-full pointer-events-auto">
+<div class="px-panel-padding mb-6">
+<div class="flex items-center gap-3 mb-2">
+<div class="h-10 w-10 rounded bg-surface-container-highest border border-glass flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">radar</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-primary leading-tight">Mission Control</h2>
+<p class="font-label-caps text-label-caps text-status-warning mt-1">Active Protocol: Alpha</p>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto px-2">
+<a class="bg-secondary-container text-on-secondary-container rounded-lg mx-2 flex items-center gap-3 px-4 py-3 mb-2" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body-md text-body-md font-semibold">Dashboard</span>
+</a>
+<a class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-body-md text-body-md">Live Map</span>
+</a>
+<a class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer" href="#">
+<span class="material-symbols-outlined">model_training</span>
+<span class="font-body-md text-body-md">Simulations</span>
+</a>
+<a class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer" href="#">
+<span class="material-symbols-outlined">emergency_share</span>
+<span class="font-body-md text-body-md">Dispatch</span>
+</a>
+<a class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg mx-2 flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer" href="#">
+<span class="material-symbols-outlined">monitoring</span>
+<span class="font-body-md text-body-md">Analytics</span>
+</a>
+</div>
+<div class="px-panel-padding mt-auto pt-6 border-t border-glass">
+<button class="w-full bg-error-container text-on-error font-label-caps text-label-caps py-3 rounded border border-error/50 hover:bg-error hover:text-on-error-container transition-colors pulse-alert mb-4">
+                    EMERGENCY OVERRIDE
+                </button>
+<div class="flex flex-col gap-2">
+<a class="text-on-surface-variant hover:text-on-surface flex items-center gap-2 text-sm" href="#">
+<span class="material-symbols-outlined text-[18px]">help_center</span>
+<span>Support</span>
+</a>
+<a class="text-on-surface-variant hover:text-on-surface flex items-center gap-2 text-sm" href="#">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+<span>Logs</span>
+</a>
+</div>
+</div>
+</nav>
+<!-- Center Space (Transparent, for map interaction) -->
+<div class="flex-1 relative flex flex-col justify-end pointer-events-none">
+<!-- Floating Action Bar Bottom Center -->
+<div class="mx-auto mb-panel-padding pointer-events-auto">
+<div class="bg-surface-glass backdrop-blur-24 border border-glass rounded-full px-6 py-3 flex items-center gap-6 shadow-2xl">
+<button class="flex flex-col items-center text-on-surface hover:text-primary transition-colors group">
+<div class="h-10 w-10 rounded-full bg-surface-container-high border border-glass flex items-center justify-center group-hover:border-primary transition-colors mb-1">
+<span class="material-symbols-outlined text-[20px]">directions_car</span>
+</div>
+<span class="font-label-caps text-label-caps text-[10px]">EVAC ROUTE</span>
+</button>
+<div class="w-px h-8 bg-glass"></div>
+<button class="flex flex-col items-center text-on-surface hover:text-primary transition-colors group">
+<div class="h-10 w-10 rounded-full bg-surface-container-high border border-glass flex items-center justify-center group-hover:border-primary transition-colors mb-1">
+<span class="material-symbols-outlined text-[20px]">campaign</span>
+</div>
+<span class="font-label-caps text-label-caps text-[10px]">BROADCAST</span>
+</button>
+<div class="w-px h-8 bg-glass"></div>
+<button class="flex flex-col items-center text-on-surface hover:text-primary transition-colors group">
+<div class="h-10 w-10 rounded-full bg-surface-container-high border border-glass flex items-center justify-center group-hover:border-primary transition-colors mb-1">
+<span class="material-symbols-outlined text-[20px]">water_drop</span>
+</div>
+<span class="font-label-caps text-label-caps text-[10px]">WATER LVL</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Panel: Live Operational Updates -->
+<aside class="w-[400px] flex flex-col gap-component-gap pointer-events-auto">
+<!-- Weather Alerts Widget -->
+<div class="bg-surface-glass backdrop-blur-24 border border-glass rounded-lg p-panel-padding shadow-xl">
+<div class="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+<h3 class="font-title-lg text-title-lg text-on-surface">Weather Telemetry</h3>
+<span class="material-symbols-outlined text-primary">radar</span>
+</div>
+<div class="space-y-4">
+<div class="bg-error-container/20 border border-error/30 rounded p-3 flex gap-3">
+<span class="material-symbols-outlined text-error mt-0.5">warning</span>
+<div>
+<h4 class="font-data-mono text-data-mono text-error mb-1">STORM SURGE WARNING</h4>
+<p class="font-body-md text-body-md text-on-surface-variant text-sm">Sector 7 coastal areas expecting +2.4m rise in next 4hrs. Evac protocol suggested.</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-surface-container-high/50 border border-glass rounded p-3">
+<span class="font-label-caps text-label-caps text-on-surface-variant block mb-1">PRECIPITATION</span>
+<span class="font-data-mono text-[20px] font-bold text-tertiary">45<span class="text-sm">mm/hr</span></span>
+</div>
+<div class="bg-surface-container-high/50 border border-glass rounded p-3">
+<span class="font-label-caps text-label-caps text-on-surface-variant block mb-1">WIND SPD</span>
+<span class="font-data-mono text-[20px] font-bold text-secondary">62<span class="text-sm">kts</span></span>
+</div>
+</div>
+</div>
+</div>
+<!-- Operational Updates / News -->
+<div class="bg-surface-glass backdrop-blur-24 border border-glass rounded-lg p-panel-padding shadow-xl flex-1 flex flex-col overflow-hidden">
+<div class="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+<h3 class="font-title-lg text-title-lg text-on-surface">Operational Log</h3>
+<span class="material-symbols-outlined text-on-surface-variant">format_list_bulleted</span>
+</div>
+<div class="flex-1 overflow-y-auto space-y-1">
+<div class="hover:bg-surface-container-high transition-colors p-3 rounded group cursor-pointer border border-transparent hover:border-glass">
+<div class="flex items-center gap-2 mb-1">
+<span class="h-2 w-2 rounded-full bg-status-success"></span>
+<span class="font-data-mono text-[11px] text-on-surface-variant">14:02:45 ZULU</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface text-sm">Dam Gate Alpha lowered successfully.</p>
+</div>
+<div class="hover:bg-surface-container-high transition-colors p-3 rounded group cursor-pointer border border-transparent hover:border-glass">
+<div class="flex items-center gap-2 mb-1">
+<span class="h-2 w-2 rounded-full bg-status-warning"></span>
+<span class="font-data-mono text-[11px] text-on-surface-variant">13:45:12 ZULU</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface text-sm">Pump Station 4 showing degraded flow rate. Maintenance team dispatched.</p>
+</div>
+<div class="hover:bg-surface-container-high transition-colors p-3 rounded group cursor-pointer border border-transparent hover:border-glass">
+<div class="flex items-center gap-2 mb-1">
+<span class="h-2 w-2 rounded-full bg-primary"></span>
+<span class="font-data-mono text-[11px] text-on-surface-variant">13:10:00 ZULU</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface text-sm">Shift change completed. Dispatcher Reynolds on duty.</p>
+</div>
+<div class="hover:bg-surface-container-high transition-colors p-3 rounded group cursor-pointer border border-transparent hover:border-glass">
+<div class="flex items-center gap-2 mb-1">
+<span class="h-2 w-2 rounded-full bg-status-success"></span>
+<span class="font-data-mono text-[11px] text-on-surface-variant">12:30:45 ZULU</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface text-sm">Routine sensor diagnostic pass. All nodes nominal.</p>
+</div>
+</div>
+</div>
+</aside>
+</main>
+</body></html>

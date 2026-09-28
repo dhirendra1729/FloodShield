@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FloodShield - Simulation Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed-dim": "#bec6e0",
+                        "primary-container": "#0f172a",
+                        "surface-container-low": "#1b1b1d",
+                        "surface-glass": "rgba(15, 23, 42, 0.75)",
+                        "on-primary-container": "#798098",
+                        "outline-variant": "#45464d",
+                        "tertiary-fixed": "#d8e2ff",
+                        "surface-container-lowest": "#0e0e10",
+                        "secondary": "#bec6e0",
+                        "on-tertiary-fixed-variant": "#2c4677",
+                        "secondary-container": "#3e465c",
+                        "status-emergency": "#ffb4ab",
+                        "background": "#131315",
+                        "on-primary-fixed": "#131b2e",
+                        "surface": "#131315",
+                        "inverse-surface": "#e5e1e4",
+                        "surface-dim": "#131315",
+                        "surface-bright": "#39393b",
+                        "on-primary": "#283044",
+                        "on-secondary": "#283044",
+                        "surface-container-highest": "#353437",
+                        "status-success": "#bec6e0",
+                        "tertiary": "#adc6ff",
+                        "on-secondary-container": "#adb5ce",
+                        "surface-variant": "#353437",
+                        "secondary-fixed": "#dae2fd",
+                        "surface-container": "#1f1f21",
+                        "surface-container-high": "#2a2a2c",
+                        "error-container": "#93000a",
+                        "on-tertiary": "#122f5f",
+                        "on-error": "#690005",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "on-secondary-fixed-variant": "#3e465c",
+                        "surface-tint": "#bec6e0",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary-fixed": "#131b2e",
+                        "on-tertiary-container": "#6880b5",
+                        "outline": "#909097",
+                        "on-background": "#e5e1e4",
+                        "inverse-on-surface": "#303032",
+                        "on-surface": "#e5e1e4",
+                        "on-surface-variant": "#c6c6cd",
+                        "border-glass": "rgba(255, 255, 255, 0.12)",
+                        "primary-fixed": "#dae2fd",
+                        "on-primary-fixed-variant": "#3f465c",
+                        "inverse-primary": "#565e74",
+                        "error": "#ffb4ab",
+                        "primary": "#bec6e0",
+                        "tertiary-fixed-dim": "#adc6ff",
+                        "status-warning": "#ffb690",
+                        "on-tertiary-fixed": "#001a42",
+                        "tertiary-container": "#00163a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "panel-padding": "24px",
+                        "component-gap": "16px",
+                        "margin-page": "48px",
+                        "unit": "4px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "display-xl": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-mono": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-caps": ["JetBrains Mono"],
+                        "title-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "display-xl": ["64px", { "lineHeight": "72px", "letterSpacing": "-0.03em", "fontWeight": "800" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-mono": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700" }],
+                        "title-lg": ["20px", { "lineHeight": "28px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>body {
+    background-color: #131315;
+    color: #e5e1e4;
+    margin: 0;
+    overflow: hidden
+    }
+.glass-panel {
+    background-color: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12)
+    }
+.map-bg {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuC7QrlxVW4VUP7r3dYZxrJjueAVgIMRoFS_-LrMQYpk5ua7dxCn4BB3TKlqwsUV-HkytvvDCbtT_JfbObdxfUCnU_CB6ibqjej4a9JsuUZjzFWofkqyvRrYbrddBLqr6TrE8dQI9ySt0IzVkNRnvtqtLYACWveQQTnYAbb6Ft2PRYzNm35jvv0AUbe9lj6ZjC5_vZ7ybGT7uBAYzFVRvngflxBFDOoVRE3LmVElcLVi9tFEomusrK3CMw);
+    background-size: cover;
+    background-position: center
+    }
+input[type=range] {
+    -webkit-appearance: none;
+    /* Hides the slider so that custom slider can be made */
+    width: 100%;
+    /* Specific width is required for Firefox. */
+    background: transparent;
+    /* Otherwise white in Chrome */
+    }
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #bec6e0;
+    cursor: pointer;
+    margin-top: -6px;
+    /* You need to specify a margin in Chrome, but in Firefox and IE it is automatic */
+    box-shadow: 0 0 10px rgba(190, 198, 224, 0.8)
+    }
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px
+    }
+.pulse-critical {
+    animation: pulse-op 2s infinite
+    }
+@keyframes pulse-op {
+    0% {
+        background-color: rgba(255, 180, 171, 0.1);
+        } 50% {
+        background-color: rgba(255, 180, 171, 0.3);
+        } 100% {
+        background-color: rgba(255, 180, 171, 0.1);
+        }
+    }</style>
+</head>
+<body class="font-body-md text-body-md h-screen w-screen flex flex-col relative">
+<!-- Background Map -->
+<div class="absolute inset-0 z-0 map-bg" data-alt="A highly detailed, futuristic topographical map displayed on a command center screen. The map shows a coastal city with intricate elevation lines and simulated flood zones highlighted in subtle neon blues and stark warnings in pale red. The aesthetic is dark mode, sleek, high-tech, and professional, resembling a military or emergency response heads-up display. High contrast between deep slate backgrounds and glowing data overlays." data-location="Miami" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBZQyOl4OW5XJQ7HDU2l1XREBTIzh0NpNIpt5qP0ZKppPOYDN12lNpF40aHHC_PPZBi9EemvO7tFamiOMWlaL85ktlZYQPORUgqS0nASiyefrR4WZFc6Sv4GGoTgOYQJyt18HEtIYaCrO6ounwAc8VgrbgBzQVQMNAdXVWl_hqMqFXOMfAQBmTACuT5s0YeKmDsG_B8ORs1xD9UoMKqazNjtc_XD4Kj5sy4tm9nKXbI572dfk9pjGT1qg');">
+<div class="absolute inset-0 bg-background/60 backdrop-blur-sm"></div>
+</div>
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface-glass text-primary font-body-md text-body-md backdrop-blur-24 border-b border-glass shadow-2xl flex justify-between items-center h-16 px-gutter">
+<div class="flex items-center gap-gutter">
+<div class="font-display-lg text-display-lg font-black text-primary tracking-tighter cursor-pointer">
+                FloodShield
+            </div>
+<!-- Search Bar -->
+<div class="relative ml-8 hidden md:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+<input class="bg-white/5 border border-glass rounded-full py-1.5 pl-10 pr-4 text-on-surface w-64 focus:outline-none focus:border-tertiary focus:bg-white/10 transition-all font-body-md text-body-md placeholder:text-on-surface-variant" placeholder="Search locations or protocols..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:bg-white/5 transition-colors rounded-full flex items-center justify-center cursor-pointer active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-white/5 transition-colors rounded-full flex items-center justify-center cursor-pointer active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-white/5 transition-colors rounded-full flex items-center justify-center cursor-pointer active:scale-95">
+<span class="material-symbols-outlined">wifi_tethering</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-surface-variant border border-glass overflow-hidden ml-2 cursor-pointer active:scale-95 transition-transform">
+<img class="w-full h-full object-cover" data-alt="A stylized, minimalist avatar for a Chief Dispatcher in a futuristic command center. The avatar should be a clean, geometric representation of a person, using deep slate blues and soft silver tones to match the high-density glassmorphism UI. Subtle glowing accents, no distracting backgrounds." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCVdbGYRAF4iRvKNL5STbrw7VCGWviOUJKrX1TMH513Nzet5DRH_vga8uBekOPGnTqQGRz1_Vxj-UkueA8CAXLggfgoLrDOKUdbGzc0QXZUAckihYJoFoZQbIlrQSVHj7cTJ_ikmFjiCBO49BKtCKrpVrGSPEIbMGtvTZrvX3ZS-YOBkRs9rH6eXOenn0rXKjH-ymLzo1Ur10IZQviqg9bUXTYDkvMx6SIOj5MCMC7zfviFI2pHY-P-KQ"/>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 flex pt-16 relative z-10">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 z-40 bg-surface-glass text-secondary font-label-caps text-label-caps backdrop-blur-24 border-r border-glass shadow-xl flex flex-col py-panel-padding">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-8 h-8 rounded-full bg-status-emergency/20 border border-status-emergency/50 flex items-center justify-center">
+<span class="material-symbols-outlined text-status-emergency text-[18px]">emergency</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-primary leading-tight">Mission Control</h2>
+<p class="text-on-surface-variant opacity-80 mt-1">Active Protocol: Alpha</p>
+</div>
+</div>
+<button class="w-full mt-4 bg-status-emergency/10 border border-status-emergency/30 text-status-emergency hover:bg-status-emergency/20 transition-all rounded py-2 font-label-caps text-label-caps tracking-wider flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[16px]">warning</span>
+                    EMERGENCY OVERRIDE
+                </button>
+</div>
+<nav class="flex-1 flex flex-col gap-1 px-4">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg" href="#">
+<span class="material-symbols-outlined">map</span>
+<span>Live Map</span>
+</a>
+<!-- Active State applied here based on 'Simulations' -->
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-lg mx-2 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">model_training</span>
+<span>Simulations</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg" href="#">
+<span class="material-symbols-outlined">emergency_share</span>
+<span>Dispatch</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all hover:translate-x-1 rounded-lg" href="#">
+<span class="material-symbols-outlined">monitoring</span>
+<span>Analytics</span>
+</a>
+</nav>
+<div class="mt-auto px-4 flex flex-col gap-1 border-t border-glass pt-4 mx-4">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all rounded-lg opacity-70 hover:opacity-100" href="#">
+<span class="material-symbols-outlined text-[18px]">help_center</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all rounded-lg opacity-70 hover:opacity-100" href="#">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+<span>Logs</span>
+</a>
+</div>
+</aside>
+<!-- Dashboard Canvas -->
+<main class="ml-64 flex-1 p-margin-page overflow-y-auto flex flex-col gap-component-gap">
+<!-- Header Row -->
+<header class="flex justify-between items-end mb-4">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface m-0">Predictive Modeling</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Sector 7G - Scenario Delta-V</p>
+</div>
+<div class="flex gap-4">
+<div class="glass-panel px-4 py-2 rounded-lg flex items-center gap-3 border-status-warning/30 bg-status-warning/10">
+<span class="material-symbols-outlined text-status-warning">cloud_sync</span>
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-status-warning/70">Weather Sync</span>
+<span class="font-data-mono text-data-mono text-status-warning">LIVE</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Layout Grid -->
+<div class="grid grid-cols-12 gap-gutter h-full min-h-[600px]">
+<!-- Controls Panel (Left Col) -->
+<div class="col-span-3 glass-panel rounded-xl p-panel-padding flex flex-col shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
+<h3 class="font-title-lg text-title-lg text-primary border-b border-glass pb-4 mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined">tune</span>
+                        Parameters
+                    </h3>
+<div class="flex flex-col gap-6 flex-1">
+<!-- Rainfall Slider -->
+<div>
+<div class="flex justify-between items-center mb-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Rainfall Intensity</label>
+<span class="font-data-mono text-data-mono text-secondary">85 mm/h</span>
+</div>
+<input class="w-full" max="200" min="0" type="range" value="85"/>
+<div class="flex justify-between mt-1 text-[10px] text-on-surface-variant/50 font-data-mono">
+<span>0</span>
+<span>200</span>
+</div>
+</div>
+<!-- Soil Moisture Toggle -->
+<div class="bg-surface-container-high/50 p-4 rounded-lg border border-glass">
+<div class="flex justify-between items-center mb-3">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Soil Saturation</label>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">water_drop</span>
+</div>
+<div class="flex gap-2">
+<button class="flex-1 py-1.5 border border-glass rounded text-on-surface-variant hover:bg-white/5 transition-colors font-label-caps text-label-caps">DRY</button>
+<button class="flex-1 py-1.5 bg-secondary-container/50 border border-secondary text-secondary rounded font-label-caps text-label-caps shadow-[inset_0_0_10px_rgba(190,198,224,0.2)]">MID</button>
+<button class="flex-1 py-1.5 border border-glass rounded text-on-surface-variant hover:bg-white/5 transition-colors font-label-caps text-label-caps">MAX</button>
+</div>
+</div>
+<!-- Tidal Influence -->
+<div>
+<div class="flex justify-between items-center mb-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Tidal Surge Offset</label>
+<span class="font-data-mono text-data-mono text-secondary">+1.2m</span>
+</div>
+<input class="w-full" max="5" min="-2" step="0.1" type="range" value="1.2"/>
+</div>
+</div>
+<!-- Action Button -->
+<button class="w-full mt-auto bg-primary/20 hover:bg-primary/30 border border-primary text-primary py-3 rounded-lg font-title-lg text-title-lg flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(190,198,224,0.15)] hover:shadow-[0_0_30px_rgba(190,198,224,0.25)] active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                        RUN SIMULATION
+                    </button>
+</div>
+<!-- Visualization Panel (Center/Right Col) -->
+<div class="col-span-9 flex flex-col gap-component-gap">
+<!-- Telemetry Row -->
+<div class="grid grid-cols-3 gap-component-gap h-24">
+<div class="glass-panel rounded-lg px-6 flex items-center justify-between border-l-2 border-l-status-warning pulse-critical">
+<div>
+<p class="font-label-caps text-label-caps text-status-warning/80">Est. Peak Crest</p>
+<p class="font-headline-lg text-headline-lg text-status-warning mt-1">14:30<span class="text-sm opacity-50 ml-1">ZULU</span></p>
+</div>
+<span class="material-symbols-outlined text-3xl text-status-warning/50">schedule</span>
+</div>
+<div class="glass-panel rounded-lg px-6 flex items-center justify-between border-l-2 border-l-status-emergency">
+<div>
+<p class="font-label-caps text-label-caps text-status-emergency/80">Predicted Max Lvl</p>
+<p class="font-headline-lg text-headline-lg text-status-emergency mt-1">4.2m<span class="text-sm opacity-50 ml-1">+0.8m</span></p>
+</div>
+<span class="material-symbols-outlined text-3xl text-status-emergency/50">waves</span>
+</div>
+<div class="glass-panel rounded-lg px-6 flex items-center justify-between border-l-2 border-l-secondary">
+<div>
+<p class="font-label-caps text-label-caps text-secondary/80">Inundation Area</p>
+<p class="font-headline-lg text-headline-lg text-secondary mt-1">12.4<span class="text-sm opacity-50 ml-1">km²</span></p>
+</div>
+<span class="material-symbols-outlined text-3xl text-secondary/50">square_foot</span>
+</div>
+</div>
+<!-- Comparison View -->
+<div class="glass-panel rounded-xl flex-1 relative overflow-hidden flex shadow-[0_12px_32px_rgba(0,0,0,0.5)] border border-glass">
+<!-- Current State -->
+<div class="flex-1 relative border-r border-glass/50 bg-background/80 flex flex-col">
+<div class="absolute top-4 left-4 z-10 bg-surface-container-high/80 backdrop-blur-md px-3 py-1 rounded border border-glass font-label-caps text-label-caps text-on-surface-variant flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-status-success"></div>
+                                CURRENT T+0
+                            </div>
+<!-- Mock Data Viz -->
+<div class="flex-1 relative flex items-center justify-center p-8 opacity-60">
+<div class="w-full h-full rounded border border-primary/20 bg-gradient-to-tr from-primary/5 to-transparent relative overflow-hidden">
+<!-- Minimal topological abstraction -->
+<svg class="absolute inset-0 w-full h-full opacity-30 stroke-primary" fill="none" stroke-width="0.5" viewbox="0 0 100 100">
+<path d="M10,50 Q30,20 50,50 T90,50"></path>
+<path d="M10,60 Q30,30 50,60 T90,60"></path>
+<path d="M10,70 Q30,40 50,70 T90,70"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Predicted State -->
+<div class="flex-1 relative bg-background/60 flex flex-col">
+<div class="absolute top-4 right-4 z-10 bg-status-emergency/20 backdrop-blur-md px-3 py-1 rounded border border-status-emergency/30 font-label-caps text-label-caps text-status-emergency flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-status-emergency animate-pulse"></div>
+                                PREDICTED T+4
+                            </div>
+<!-- Mock Data Viz -->
+<div class="flex-1 relative flex items-center justify-center p-8">
+<div class="w-full h-full rounded border border-status-emergency/40 bg-gradient-to-tr from-status-emergency/10 to-transparent relative overflow-hidden">
+<svg class="absolute inset-0 w-full h-full opacity-50 stroke-status-emergency" fill="none" stroke-width="0.5" viewbox="0 0 100 100">
+<path d="M10,40 Q30,10 50,40 T90,40"></path>
+<path d="M10,50 Q30,20 50,50 T90,50"></path>
+<path d="M10,60 Q30,30 50,60 T90,60"></path>
+<!-- Flood fill area -->
+<path d="M10,100 L10,60 Q30,30 50,60 T90,60 L90,100 Z" fill="rgba(255, 180, 171, 0.1)" stroke="none"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Slider UI Hint -->
+<div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-16 bg-surface-container-high/90 border border-glass rounded-full flex flex-col items-center justify-center shadow-lg backdrop-blur cursor-ew-resize">
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant">drag_indicator</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

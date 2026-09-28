@@ -1,0 +1,38 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "encoding": "^0.1.13",
+    "framer-motion": "^12.42.2",
+    "georaster": "^1.6.0",
+    "georaster-layer-for-leaflet": "^4.1.2",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.25.0",
+    "next": "^14.2.35",
+    "papaparse": "^5.5.4",
+    "proj4": "^2.20.9",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-leaflet": "^4.2.1",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.8",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

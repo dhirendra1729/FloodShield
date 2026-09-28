@@ -1,0 +1,17 @@
+{
+"type": "FeatureCollection",
+"name": "shelters",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "full_id": "w1037702758", "osm_id": "1037702758", "osm_type": "way", "building": "apartments", "area": 179.4043027634246, "name": "Safe Shelter 1", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.280051914647999, 26.3876545033554 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037696063", "osm_id": "1037696063", "osm_type": "way", "building": "apartments", "area": 136.61978634461667, "name": "Safe Shelter 2", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.39005595, 26.3972353 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037699138", "osm_id": "1037699138", "osm_type": "way", "building": "apartments", "area": 97.610305417402856, "name": "Safe Shelter 3", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.391515, 26.39996945 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037696074", "osm_id": "1037696074", "osm_type": "way", "building": "apartments", "area": 97.477406226415752, "name": "Safe Shelter 4", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.389717531495364, 26.398886164302155 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037699141", "osm_id": "1037699141", "osm_type": "way", "building": "apartments", "area": 92.524050199737871, "name": "Safe Shelter 5", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.392280779861622, 26.400898760432462 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037696082", "osm_id": "1037696082", "osm_type": "way", "building": "apartments", "area": 92.412276850478776, "name": "Safe Shelter 6", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.39232435, 26.3984095 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037697463", "osm_id": "1037697463", "osm_type": "way", "building": "apartments", "area": 90.939697487123908, "name": "Safe Shelter 7", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.39098795, 26.39943865 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037697469", "osm_id": "1037697469", "osm_type": "way", "building": "apartments", "area": 87.708614923992087, "name": "Safe Shelter 8", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.390740343447789, 26.400295629572497 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037699287", "osm_id": "1037699287", "osm_type": "way", "building": "apartments", "area": 77.105225980222485, "name": "Safe Shelter 9", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.393702876026467, 26.401546486855825 ] } },
+{ "type": "Feature", "properties": { "full_id": "w1037699286", "osm_id": "1037699286", "osm_type": "way", "building": "apartments", "area": 75.838206732975664, "name": "Safe Shelter 10", "capacity": 500 }, "geometry": { "type": "Point", "coordinates": [ 92.393558, 26.40153495 ] } }
+]
+}

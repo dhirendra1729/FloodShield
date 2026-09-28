@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 15, 23, 42; /* text-slate-900 */
+  --background-start-rgb: 255, 255, 255; /* white */
+  --background-end-rgb: 248, 250, 252; /* slate-50 */
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background-color: rgb(var(--background-start-rgb));
+  min-height: 100vh;
+}
+
+/* Custom Leaflet Controls - Google Maps Style */
+.leaflet-bar {
+  border: none !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+.leaflet-bar a {
+  background-color: #ffffff !important;
+  color: #1e293b !important; /* slate-800 */
+  font-weight: bold !important;
+  font-size: 24px !important;
+  width: 44px !important;
+  height: 44px !important;
+  line-height: 44px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.leaflet-bar a:hover {
+  background-color: #f8fafc !important;
+  color: #000000 !important;
+}
+.leaflet-bar a:last-child {
+  border-bottom: none !important;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "floodshield",
+  "version": "1.0.0",
+  "description": "Dam Break Inundation Modeling Using Hydrodynamic Modeling (SIH26161 NTRO)",
+  "scripts": {
+    "start": "./start.sh",
+    "dev": "./start.sh",
+    "test": "backend/.venv/bin/python backend/tests/test_sih26161.py"
+  }
+}

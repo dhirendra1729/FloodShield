@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Rescue Dispatch Command Center - FloodShield</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary-fixed-dim": "#bec6e0",
+                      "primary-container": "#0f172a",
+                      "surface-container-low": "#1b1b1d",
+                      "surface-glass": "rgba(15, 23, 42, 0.75)",
+                      "on-primary-container": "#798098",
+                      "outline-variant": "#45464d",
+                      "tertiary-fixed": "#d8e2ff",
+                      "surface-container-lowest": "#0e0e10",
+                      "secondary": "#bec6e0",
+                      "on-tertiary-fixed-variant": "#2c4677",
+                      "secondary-container": "#3e465c",
+                      "status-emergency": "#ffb4ab",
+                      "background": "#131315",
+                      "on-primary-fixed": "#131b2e",
+                      "surface": "#131315",
+                      "inverse-surface": "#e5e1e4",
+                      "surface-dim": "#131315",
+                      "surface-bright": "#39393b",
+                      "on-primary": "#283044",
+                      "on-secondary": "#283044",
+                      "surface-container-highest": "#353437",
+                      "status-success": "#bec6e0",
+                      "tertiary": "#adc6ff",
+                      "on-secondary-container": "#adb5ce",
+                      "surface-variant": "#353437",
+                      "secondary-fixed": "#dae2fd",
+                      "surface-container": "#1f1f21",
+                      "surface-container-high": "#2a2a2c",
+                      "error-container": "#93000a",
+                      "on-tertiary": "#122f5f",
+                      "on-error": "#690005",
+                      "secondary-fixed-dim": "#bec6e0",
+                      "on-secondary-fixed-variant": "#3e465c",
+                      "surface-tint": "#bec6e0",
+                      "on-error-container": "#ffdad6",
+                      "on-secondary-fixed": "#131b2e",
+                      "on-tertiary-container": "#6880b5",
+                      "outline": "#909097",
+                      "on-background": "#e5e1e4",
+                      "inverse-on-surface": "#303032",
+                      "on-surface": "#e5e1e4",
+                      "on-surface-variant": "#c6c6cd",
+                      "border-glass": "rgba(255, 255, 255, 0.12)",
+                      "primary-fixed": "#dae2fd",
+                      "on-primary-fixed-variant": "#3f465c",
+                      "inverse-primary": "#565e74",
+                      "error": "#ffb4ab",
+                      "primary": "#bec6e0",
+                      "tertiary-fixed-dim": "#adc6ff",
+                      "status-warning": "#ffb690",
+                      "on-tertiary-fixed": "#001a42",
+                      "tertiary-container": "#00163a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "panel-padding": "24px",
+                      "component-gap": "16px",
+                      "margin-page": "48px",
+                      "unit": "4px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "display-xl": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "data-mono": [
+                              "JetBrains Mono"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "JetBrains Mono"
+                      ],
+                      "title-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "52px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "800"
+                              }
+                      ],
+                      "display-xl": [
+                              "64px",
+                              {
+                                      "lineHeight": "72px",
+                                      "letterSpacing": "-0.03em",
+                                      "fontWeight": "800"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "data-mono": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-caps": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.1em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "title-lg": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+          .glass-panel {
+              background: rgba(15, 23, 42, 0.75);
+              backdrop-filter: blur(24px);
+              -webkit-backdrop-filter: blur(24px);
+              border: 1px solid rgba(255, 255, 255, 0.12);
+          }
+          
+          .glow-border:focus-within {
+              box-shadow: 0 0 0 1px #adc6ff;
+              border-color: #adc6ff;
+          }
+
+          @keyframes pulse-critical {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.7; }
+          }
+          .animate-pulse-critical {
+              animation: pulse-critical 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+
+          /* Custom Scrollbar for dense lists */
+          ::-webkit-scrollbar {
+              width: 6px;
+          }
+          ::-webkit-scrollbar-track {
+              background: transparent;
+          }
+          ::-webkit-scrollbar-thumb {
+              background: #353437;
+              border-radius: 4px;
+          }
+          ::-webkit-scrollbar-thumb:hover {
+              background: #45464d;
+          }
+      </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen overflow-hidden selection:bg-primary selection:text-on-primary">
+<!-- Global Background / Map Area -->
+<div class="fixed inset-0 z-0 bg-surface-container-lowest">
+<div class="absolute inset-0 w-full h-full bg-cover bg-center opacity-40 mix-blend-luminosity" data-alt="A highly detailed, dark-themed satellite map interface displaying a coastal region. The map uses deep navy and slate tones with stark white and electric blue lines representing roads and waterways. A subtle vignette darkens the edges. The aesthetic is tactical, high-tech, and professional, suitable for a military or emergency response command center." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAiA4cnOD1-eW-c0OvxLaEdDqugnUTTQbVjE4C08BivlDyrB3oSm1KvNkOPAKTqBR3EX5UrQAayn4O2y2pbd9i1daEucpSz0pFeqXm-XNxqOMCWWXPEOXj6EEl5RoGLkUkQMAWy37zqaQRmOojbNSR3MoItQru5n-TA62Sgn6Deq62t8V9ciFfKoTX3efo8cQ6rDutlm6LgHztbTXTCbYr2XqpqFZ5SNRSMNIgdc9RfFsthaizE30tLPQ')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/50"></div>
+</div>
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface-glass backdrop-blur-24 border-b border-glass shadow-2xl flex justify-between items-center h-16 px-gutter">
+<div class="flex items-center gap-6">
+<span class="font-display-lg text-display-lg font-black text-primary tracking-tighter">FloodShield</span>
+<div class="h-6 w-px bg-border-glass"></div>
+<!-- Search / Quick Command -->
+<div class="relative w-64 glow-border rounded">
+<span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm" style="font-variation-settings: 'FILL' 0;">search</span>
+<input class="w-full bg-transparent border-none text-on-surface font-data-mono text-data-mono pl-8 pr-2 py-1.5 focus:ring-0 placeholder:text-on-surface-variant/50" placeholder="Enter coordinates or ID..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button aria-label="notifications" class="text-on-surface-variant hover:bg-white/5 transition-colors p-2 rounded-full cursor-pointer active:scale-95 transition-transform">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button aria-label="settings" class="text-on-surface-variant hover:bg-white/5 transition-colors p-2 rounded-full cursor-pointer active:scale-95 transition-transform">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button aria-label="wifi_tethering" class="text-on-surface-variant hover:bg-white/5 transition-colors p-2 rounded-full cursor-pointer active:scale-95 transition-transform">
+<span class="material-symbols-outlined">wifi_tethering</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-surface-container-high border border-glass overflow-hidden ml-2">
+<img alt="Chief Dispatcher Avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a female rescue dispatcher wearing a headset, set against a dark, high-tech background with subtle blue lighting. The lighting is cinematic and the mood is focused and authoritative. The image style is photorealistic and polished." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBsUlQH8nZUAGpKlgjm6Fwx8KMNvOAuT6tNw8TvUCwVDgrH33AwpunB--1ad5Vp0ONqDhyVsq7fAF-mbA1Bdxoqu8byEQUWm8wj7qSdBfWvNnV9t25aFM8wUNra0EQxVCji4DfL2WteI6lnvKf5mAhPB5E3QmvEcMeCN9F_I0Y0-MouENAQ5eUwh5snAPz4VAZcUOh_4fSvr9vE-dT7GKbAvMt7LCZ69G7VsguMBCLZGGM-xRtVkMccJw"/>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 z-40 bg-surface-glass backdrop-blur-24 border-r border-glass shadow-xl flex flex-col py-panel-padding hidden md:flex">
+<div class="px-gutter mb-8">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-2 h-2 rounded-full bg-status-success animate-pulse"></div>
+<span class="font-headline-md text-headline-md text-primary">Mission Control</span>
+</div>
+<p class="font-data-mono text-data-mono text-on-surface-variant">Active Protocol: Alpha</p>
+</div>
+<nav class="flex-1 flex flex-col gap-2 px-2">
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all font-label-caps text-label-caps hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+                Dashboard
+            </a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all font-label-caps text-label-caps hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">map</span>
+                Live Map
+            </a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all font-label-caps text-label-caps hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">model_training</span>
+                Simulations
+            </a>
+<!-- Active Tab -->
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container text-on-secondary-container rounded-lg mx-2 font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency_share</span>
+                Dispatch
+            </a>
+<!-- Inactive -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all font-label-caps text-label-caps hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">monitoring</span>
+                Analytics
+            </a>
+</nav>
+<div class="mt-auto px-gutter flex flex-col gap-4">
+<button class="w-full py-3 bg-status-emergency/10 text-status-emergency border border-status-emergency/30 rounded font-label-caps text-label-caps hover:bg-status-emergency/20 transition-colors">
+                EMERGENCY OVERRIDE
+            </button>
+<div class="flex gap-4 border-t border-glass pt-4">
+<a aria-label="Support" class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-sm">help_center</span>
+</a>
+<a aria-label="Logs" class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-sm">terminal</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas (Floating Dashboard Layout) -->
+<main class="fixed top-16 left-0 md:left-64 right-0 bottom-0 p-margin-page overflow-hidden flex gap-gutter">
+<!-- Column 1: Prioritized Queue (Glass Panel) -->
+<section class="glass-panel w-80 rounded-xl flex flex-col shadow-xl">
+<header class="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+<h2 class="font-title-lg text-title-lg text-primary">Incident Queue</h2>
+<span class="font-data-mono text-data-mono text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">42 Active</span>
+</header>
+<div class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+<!-- Queue Item 1 (Selected/High Priority) -->
+<div class="p-3 rounded-lg bg-surface-container-high border-l-4 border-status-emergency cursor-pointer hover:bg-surface-variant transition-colors relative overflow-hidden">
+<div class="absolute inset-0 bg-status-emergency/5 animate-pulse-critical pointer-events-none"></div>
+<div class="flex justify-between items-start mb-1 relative z-10">
+<span class="font-data-mono text-data-mono text-status-emergency">INC-8492</span>
+<span class="font-label-caps text-[10px] bg-status-emergency text-on-error px-1.5 rounded-sm">CRITICAL</span>
+</div>
+<h3 class="font-body-md text-body-md font-semibold text-on-surface mb-1">Group Trapped on Roof</h3>
+<div class="flex items-center gap-4 text-on-surface-variant font-data-mono text-[11px]">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">group</span> 6 pax</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">timer</span> 14m</span>
+</div>
+</div>
+<!-- Queue Item 2 -->
+<div class="p-3 rounded-lg bg-surface-container-low border-l-4 border-status-warning cursor-pointer hover:bg-surface-variant transition-colors">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-data-mono text-on-surface-variant">INC-8490</span>
+<span class="font-label-caps text-[10px] bg-status-warning/20 text-status-warning border border-status-warning/30 px-1.5 rounded-sm">URGENT</span>
+</div>
+<h3 class="font-body-md text-body-md text-on-surface mb-1">Vehicle Submerged</h3>
+<div class="flex items-center gap-4 text-on-surface-variant font-data-mono text-[11px]">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">directions_car</span> 2 pax</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">timer</span> 22m</span>
+</div>
+</div>
+<!-- Queue Item 3 -->
+<div class="p-3 rounded-lg bg-surface-container-low border-l-4 border-primary/50 cursor-pointer hover:bg-surface-variant transition-colors">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-data-mono text-on-surface-variant">INC-8485</span>
+</div>
+<h3 class="font-body-md text-body-md text-on-surface mb-1">Evacuation Request</h3>
+<div class="flex items-center gap-4 text-on-surface-variant font-data-mono text-[11px]">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">home</span> 4 pax</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">timer</span> 45m</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Column 2: Selected Details & Map (Glass Panel) -->
+<section class="flex-1 flex flex-col gap-component-gap">
+<!-- SITREP Panel -->
+<div class="glass-panel rounded-xl p-panel-padding shadow-xl flex-shrink-0">
+<div class="flex justify-between items-start mb-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-headline-md text-headline-md text-on-surface">INC-8492</span>
+<span class="font-label-caps text-label-caps bg-status-emergency/20 text-status-emergency border border-status-emergency/50 px-2 py-0.5 rounded">PRIORITY 1</span>
+</div>
+<p class="font-data-mono text-data-mono text-on-surface-variant">Loc: 34.0522° N, 118.2437° W | Elev: 45m | Water lvl: Rising rapidly</p>
+</div>
+<button class="bg-primary-container text-primary border border-primary/30 px-4 py-2 rounded hover:bg-primary/10 transition-colors font-label-caps text-label-caps flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">flight_takeoff</span> DISPATCH AIR
+                    </button>
+</div>
+<div class="bg-surface-container-lowest border border-glass rounded p-4">
+<div class="flex items-center gap-2 mb-2 text-secondary">
+<span class="material-symbols-outlined text-sm">smart_toy</span>
+<span class="font-label-caps text-label-caps">AI SITREP GENERATED</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface/90 leading-relaxed">
+                        Group of 6 individuals, including 2 minors, trapped on flat commercial roof. Rising floodwaters have compromised lower floors structural integrity. Estimated safe window for extraction: <strong class="text-status-warning">14 minutes</strong>. Nearest capable unit is H-4 (ETA 8m). Weather deteriorating, crosswinds at 15kts.
+                    </p>
+</div>
+</div>
+<!-- Focused Map View -->
+<div class="glass-panel rounded-xl flex-1 shadow-xl relative overflow-hidden border border-glass">
+<div class="absolute inset-0 w-full h-full bg-cover bg-center" data-alt="A close-up tactical satellite map view centered on a commercial building surrounded by dark, churning floodwaters. Overlaid on the map is a glowing neon cyan evacuation route path and red circular threat indicators. The styling is high-contrast, dark mode, futuristic HUD aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBPNEWHEUFY8MbuKh6ibM48yojHsmylnYlMFafUasFOqR98_Ciu9khedFnlEIl1Dw1QhB4K3FXs6axd1LDjwxWeb8g8J0RDI6ERqClOTvfwSPIpzYSRkbVzod5QfKSauGH8zwjJxdneNiDypQXKCSEFL_8_7I2jCgQXW0tlzjFgEDeS4RyM_BWQh3z__RBswRwZ0rsqeBTGxG3N8OhSw6ZmHF_5PSQdVbWkhML0rzh_f1_Bl5A0gtV1Zg')"></div>
+<!-- Map Overlay UI -->
+<div class="absolute inset-0 pointer-events-none p-4 flex flex-col justify-between">
+<div class="flex justify-end gap-2">
+<div class="bg-surface-glass backdrop-blur-md p-1.5 rounded border border-glass pointer-events-auto cursor-pointer hover:bg-white/10 transition">
+<span class="material-symbols-outlined text-on-surface">add</span>
+</div>
+<div class="bg-surface-glass backdrop-blur-md p-1.5 rounded border border-glass pointer-events-auto cursor-pointer hover:bg-white/10 transition">
+<span class="material-symbols-outlined text-on-surface">remove</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest/80 backdrop-blur-md border border-glass rounded p-3 w-max pointer-events-auto">
+<span class="font-label-caps text-label-caps text-on-surface-variant block mb-1">Route Calc: Alpha-Victor</span>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1 text-status-success font-data-mono text-data-mono">
+<span class="material-symbols-outlined text-sm">check_circle</span> Clear Path
+                            </div>
+<div class="h-4 w-px bg-glass"></div>
+<span class="font-data-mono text-data-mono text-on-surface">Dist: 1.2km</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Column 3: Comms Console (Glass Panel) -->
+<section class="glass-panel w-96 rounded-xl flex flex-col shadow-xl border border-glass">
+<header class="p-4 border-b border-white/10 flex items-center gap-2 bg-white/5">
+<span class="material-symbols-outlined text-tertiary">chat</span>
+<h2 class="font-title-lg text-title-lg text-tertiary">Comms Console</h2>
+</header>
+<div class="flex-1 p-panel-padding flex flex-col gap-4 overflow-y-auto">
+<!-- Target Info -->
+<div class="flex justify-between items-center p-3 bg-surface-container border border-glass rounded">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">Target Device</span>
+<span class="font-data-mono text-data-mono text-on-surface">+1 (555) 019-8492</span>
+</div>
+<span class="material-symbols-outlined text-status-success" title="Signal Active">network_cell</span>
+</div>
+<!-- Message History -->
+<div class="flex-1 flex flex-col gap-3 min-h-[200px]">
+<div class="self-start max-w-[85%]">
+<span class="font-label-caps text-[10px] text-on-surface-variant mb-1 block">14:02 - System Auto</span>
+<div class="bg-surface-container-highest p-3 rounded-r-lg rounded-bl-lg text-sm text-on-surface">
+                            Emergency Services notified. Stay on the roof. Do not enter the water.
+                        </div>
+</div>
+<div class="self-end max-w-[85%] text-right">
+<span class="font-label-caps text-[10px] text-on-surface-variant mb-1 block">14:05 - Target</span>
+<div class="bg-tertiary-container text-on-tertiary-container p-3 rounded-l-lg rounded-br-lg text-sm inline-block text-left">
+                            Water is still rising. We have 2 kids. Please hurry.
+                        </div>
+</div>
+</div>
+<!-- AI Compose Area -->
+<div class="mt-auto border-t border-glass pt-4">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-secondary text-sm">auto_awesome</span>
+<span class="font-label-caps text-label-caps text-secondary">AI Suggested Responses</span>
+</div>
+<div class="flex flex-wrap gap-2 mb-4">
+<button class="px-2 py-1 bg-surface-container-high border border-glass rounded font-data-mono text-[11px] text-on-surface hover:border-secondary transition-colors text-left max-w-full truncate">
+                            "Helo H-4 is 8 mins out. Secure loose items."
+                        </button>
+<button class="px-2 py-1 bg-surface-container-high border border-glass rounded font-data-mono text-[11px] text-on-surface hover:border-secondary transition-colors text-left max-w-full truncate">
+                            "Move to highest stable point. Do you need medical?"
+                        </button>
+</div>
+<div class="relative glow-border rounded-lg bg-surface-container overflow-hidden">
+<textarea class="w-full bg-transparent border-none text-on-surface font-body-md text-sm p-3 focus:ring-0 resize-none" placeholder="Type manual message..." rows="3"></textarea>
+<div class="absolute bottom-2 right-2">
+<button class="bg-tertiary text-on-tertiary p-1.5 rounded hover:bg-tertiary/90 transition-colors flex items-center justify-center cursor-pointer active:scale-95">
+<span class="material-symbols-outlined text-sm">send</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+</body></html>
