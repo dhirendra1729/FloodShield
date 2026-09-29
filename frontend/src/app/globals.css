@@ -2,42 +2,235 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   FloodShield Design Tokens — SIH26161 (NTRO)
+   Dark "mission control" theme. Single source of truth for colour, type,
+   space, radius, elevation and motion. Tailwind maps onto these variables;
+   nothing should hard-code a hex value outside this block.
+   ========================================================================== */
+
 :root {
-  --foreground-rgb: 15, 23, 42; /* text-slate-900 */
-  --background-start-rgb: 255, 255, 255; /* white */
-  --background-end-rgb: 248, 250, 252; /* slate-50 */
+  /* --- Surfaces (elevation ladder, darkest -> lightest) ------------------ */
+  --fs-surface-base: #0e0e10;      /* page background */
+  --fs-surface-sunken: #131315;    /* wells, code blocks */
+  --fs-surface: #1b1b1d;           /* default panel */
+  --fs-surface-raised: #1f1f21;    /* card on panel */
+  --fs-surface-high: #2a2a2c;      /* hover / active card */
+  --fs-surface-highest: #353437;   /* input, strong chrome */
+  --fs-surface-glass: rgba(19, 19, 21, 0.78);
+
+  /* --- Content -----------------------------------------------------------
+     Ratios below are against surface-base and were recomputed from the WCAG
+     relative-luminance formula; the previous figures were estimates and did
+     not match the colours they described. The binding surface is not base but
+     `high`, because text never sits on surface-highest -- that token is input
+     chrome and slider tracks. */
+  --fs-text: #e5e1e4;              /* 14.9:1 on surface-base, 11.1:1 on high */
+  --fs-text-muted: #c6c6cd;        /* 11.4:1 */
+  --fs-text-subtle: #9a9aa3;       /*  6.9:1 */
+  --fs-text-faint: #909099;        /*  6.1:1 on base, 5.2:1 on surface-raised,
+                                      4.5:1 on high. Tuned for surface-raised
+                                      because fs-panel-solid paints every Stat
+                                      tile with it: at the previous #7d7d86 the
+                                      hint line measured 4.04:1 and missed AA. */
+
+  /* --- Brand ------------------------------------------------------------- */
+  --fs-primary: #bec6e0;
+  --fs-primary-strong: #dae2fd;
+  --fs-primary-dim: #798098;       /* 4.9:1 on surface-base — decorative only, never body text */
+  --fs-primary-wash: rgba(190, 198, 224, 0.14);
+
+  /* --- Status (semantic, distinct hues — success must not read as brand) -- */
+  --fs-success: #4ade80;
+  --fs-success-wash: rgba(74, 222, 128, 0.14);
+  --fs-warning: #fbbf24;
+  --fs-warning-wash: rgba(251, 191, 36, 0.14);
+  --fs-danger: #ff8a80;
+  --fs-danger-wash: rgba(255, 138, 128, 0.14);
+  --fs-info: #adc6ff;
+  --fs-info-wash: rgba(173, 198, 255, 0.14);
+
+  /* --- Borders ----------------------------------------------------------- */
+  --fs-border: rgba(255, 255, 255, 0.10);
+  --fs-border-strong: rgba(255, 255, 255, 0.20);
+  --fs-focus: #dae2fd;
+
+  /* --- Typography -------------------------------------------------------- */
+  --fs-font-ui: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --fs-font-mono: var(--font-jetbrains-mono), ui-monospace, "SF Mono", monospace;
+
+  --fs-text-xs: 0.75rem;
+  --fs-text-sm: 0.8125rem;
+  --fs-text-base: 0.875rem;
+  --fs-text-md: 1rem;
+  --fs-text-lg: 1.125rem;
+  --fs-text-xl: 1.5rem;
+  --fs-text-2xl: 2rem;
+
+  /* --- Space (4px base unit) --------------------------------------------- */
+  --fs-space-1: 0.25rem;
+  --fs-space-2: 0.5rem;
+  --fs-space-3: 0.75rem;
+  --fs-space-4: 1rem;
+  --fs-space-5: 1.25rem;
+  --fs-space-6: 1.5rem;
+  --fs-space-8: 2rem;
+  --fs-space-10: 2.5rem;
+  --fs-space-12: 3rem;
+
+  /* --- Radius ------------------------------------------------------------ */
+  --fs-radius-sm: 0.375rem;
+  --fs-radius: 0.5rem;
+  --fs-radius-lg: 0.75rem;
+  --fs-radius-xl: 1rem;
+
+  /* --- Elevation --------------------------------------------------------- */
+  --fs-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --fs-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --fs-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  /* --- Motion ------------------------------------------------------------ */
+  --fs-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --fs-duration-fast: 120ms;
+  --fs-duration: 200ms;
+  --fs-duration-slow: 400ms;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background-color: rgb(var(--background-start-rgb));
-  min-height: 100vh;
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--fs-border);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--fs-surface-base);
+    color: var(--fs-text);
+    font-family: var(--fs-font-ui);
+    font-size: var(--fs-text-base);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  /* Visible focus for every keyboard-reachable control. Never removed. */
+  :focus-visible {
+    outline: 2px solid var(--fs-focus);
+    outline-offset: 2px;
+    border-radius: var(--fs-radius-sm);
+  }
+
+  /* Respect the OS "reduce motion" setting rather than animating regardless. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-/* Custom Leaflet Controls - Google Maps Style */
+/* ==========================================================================
+   Components — reusable primitives, kept small
+   ========================================================================== */
+
+@layer components {
+  /* Frosted panel used for every surface in the shell. */
+  .fs-panel {
+    background: var(--fs-surface-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--fs-border);
+    border-radius: var(--fs-radius-lg);
+    box-shadow: var(--fs-shadow);
+  }
+
+  /* Solid variant for nested content where glass-on-glass muddies contrast. */
+  .fs-panel-solid {
+    background: var(--fs-surface-raised);
+    border: 1px solid var(--fs-border);
+    border-radius: var(--fs-radius);
+  }
+
+  /* Small all-caps label used above values and in table headers. */
+  .fs-label {
+    font-family: var(--fs-font-mono);
+    font-size: 0.625rem;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--fs-text-subtle);
+  }
+
+  /* Tabular figures so columns of numbers line up. */
+  .fs-numeric {
+    font-family: var(--fs-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+@layer utilities {
+  .fs-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--fs-surface-highest) transparent;
+  }
+  .fs-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .fs-scroll::-webkit-scrollbar-track { background: transparent; }
+  .fs-scroll::-webkit-scrollbar-thumb {
+    background: var(--fs-surface-highest);
+    border-radius: 4px;
+  }
+  .fs-scroll::-webkit-scrollbar-thumb:hover { background: #45464d; }
+}
+
+/* ==========================================================================
+   Leaflet — the library ships light chrome; restate it for the dark shell
+   ========================================================================== */
+
 .leaflet-bar {
   border: none !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
-  border-radius: 12px !important;
+  box-shadow: var(--fs-shadow) !important;
+  border-radius: var(--fs-radius-lg) !important;
   overflow: hidden;
 }
 .leaflet-bar a {
-  background-color: #ffffff !important;
-  color: #1e293b !important; /* slate-800 */
-  font-weight: bold !important;
-  font-size: 24px !important;
-  width: 44px !important;
-  height: 44px !important;
-  line-height: 44px !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  background-color: var(--fs-surface-raised) !important;
+  color: var(--fs-text) !important;
+  font-weight: 600 !important;
+  font-size: 20px !important;
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  border-bottom: 1px solid var(--fs-border) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
 }
 .leaflet-bar a:hover {
-  background-color: #f8fafc !important;
-  color: #000000 !important;
+  background-color: var(--fs-surface-high) !important;
+  color: var(--fs-primary-strong) !important;
 }
-.leaflet-bar a:last-child {
-  border-bottom: none !important;
+.leaflet-bar a:last-child { border-bottom: none !important; }
+.leaflet-control-attribution {
+  background: rgba(19, 19, 21, 0.8) !important;
+  color: var(--fs-text-subtle) !important;
+  font-size: 10px !important;
 }
+.leaflet-control-attribution a { color: var(--fs-primary) !important; }
