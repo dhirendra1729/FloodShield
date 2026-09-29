@@ -54,13 +54,18 @@ def health_check():
     honour. What is listed as available is what has been run.
     """
     import anuga
+    version = getattr(anuga, "__version__", "unknown")
     return {
         "status": "ok",
         "system": "FloodShield Hydrodynamic Intelligence",
         "problem_statement": "SIH26161 (NTRO)",
         "solvers": {
-            "primary": "ANUGA 4.0.1 2D Finite-Volume SWE",
-            "anuga_version": getattr(anuga, "__version__", "unknown"),
+            # Built from the imported module rather than written as a literal:
+            # a hardcoded "4.0.1" would keep reporting the version this was
+            # developed against even if a different ANUGA were installed, and
+            # the verification below it is a claim about that exact solver.
+            "primary": f"ANUGA {version} 2D Finite-Volume SWE",
+            "anuga_version": version,
             "verification": "Ritter (1892) analytical dam-break solution",
             "satellite": "Sentinel-1 SAR IW Dual-Pol (STAC Element84)",
             "unavailable": {
@@ -74,9 +79,125 @@ def health_check():
 # DELIVERABLE 1: SOLVER VERIFICATION AGAINST AN ANALYTICAL SOLUTION
 # =========================================================================
 
-# The flume run takes a couple of seconds and is deterministic, so it is
-# computed once and reused.
+# The flume run is deterministic, so it is computed once and reused. Held in
+# memory for the life of the process and mirrored to disk, because the first
+# request after every restart would otherwise re-solve — and the moment a
+# memory-hungry solver runs is the moment this process is most likely to die.
 _flume_cache: Dict[str, Any] = {}
+
+_FLUME_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
+
+# Bump when the stored shape changes; a file from an older layout is ignored
+# rather than misread.
+_FLUME_CACHE_SCHEMA = 1
+
+
+def _installed_anuga_version() -> str:
+    import anuga
+    return getattr(anuga, "__version__", "unknown")
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert numpy scalars and arrays to plain Python.
+
+    The run carries ndarrays (time_s, the two depth curves); json.dump cannot
+    serialise them, and a cache that silently failed to write would leave the
+    re-solve it was meant to prevent.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _flume_cache_path(dx: float) -> str:
+    return os.path.join(_FLUME_CACHE_DIR, f"flume_benchmark_dx{dx:.3f}.json")
+
+
+def load_flume_from_disk(dx: float) -> Optional[Dict[str, Any]]:
+    """Return a stored flume run, or None if there is not a usable one.
+
+    The stored curves are a claim about what a particular solver produced. If
+    the ANUGA build installed now is not the one that produced them, the claim
+    is stale, so the file is ignored rather than served as a current result.
+    """
+    try:
+        with open(_flume_cache_path(dx), encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+    if not isinstance(blob, dict) or blob.get("schema") != _FLUME_CACHE_SCHEMA:
+        return None
+    if blob.get("anuga_version") != _installed_anuga_version():
+        return None
+
+    run = blob.get("run")
+    return run if isinstance(run, dict) else None
+
+
+def save_flume_to_disk(dx: float, run: Dict[str, Any]) -> None:
+    """Mirror a flume run to disk.
+
+    Caching is an optimisation. If it fails, the request that produced the run
+    still succeeds — it just pays to solve again next time.
+    """
+    path = _flume_cache_path(dx)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(_FLUME_CACHE_DIR, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "schema": _FLUME_CACHE_SCHEMA,
+                    "anuga_version": _installed_anuga_version(),
+                    "run": _jsonable(run),
+                },
+                fh,
+            )
+        # Atomic, so a reader never sees a half-written file.
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"[flume-cache] not persisted: {exc}")
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
+
+def get_flume_run(dx: float) -> Dict[str, Any]:
+    """Memory, then disk, then solve. Only a genuine cache miss costs a run."""
+    key = f"{dx:.3f}"
+    if key not in _flume_cache:
+        run = load_flume_from_disk(dx)
+        if run is None:
+            from hydro.flume import run_flume_benchmark
+            run = run_flume_benchmark(dx=dx)
+            save_flume_to_disk(dx, run)
+        _flume_cache[key] = run
+    return _flume_cache[key]
+
+
+@app.on_event("startup")
+def warm_flume_cache():
+    """Adopt a stored flume run at boot, so no click pays for the solve.
+
+    Deliberately loads from disk rather than computing: if the stored run is
+    missing or stale the work happens on demand as before, which keeps a solver
+    crash out of the startup path. A cache that already exists makes the
+    endpoint instant without allocating anything.
+    """
+    run = load_flume_from_disk(0.2)
+    if run is not None:
+        _flume_cache["0.200"] = run
+        print("[flume-cache] loaded stored benchmark result")
 
 
 @app.get("/api/dam/benchmark")
@@ -94,17 +215,13 @@ def get_benchmark_comparison(dx: float = 0.2):
     two shallow-water solvers agree with each other by construction, whereas
     agreement with a closed-form solution tests the discretisation itself.
     """
-    key = f"{dx:.3f}"
-    if key not in _flume_cache:
-        try:
-            from hydro.flume import run_flume_benchmark
-            _flume_cache[key] = run_flume_benchmark(dx=dx)
-        except Exception as exc:
-            import traceback
-            traceback.print_exc()
-            return {"status": "error", "message": f"flume benchmark failed: {exc}"}
+    try:
+        run = get_flume_run(dx)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": f"flume benchmark failed: {exc}"}
 
-    run = _flume_cache[key]
     m = run["metrics"]
 
     return {
@@ -113,7 +230,13 @@ def get_benchmark_comparison(dx: float = 0.2):
         "reference": run["reference"],
         "reference_citation": run["reference_citation"],
         "setup": run["setup"],
-        "flume_time_s": run["time_s"],
+        # Sample times come from ANUGA's own yield steps, which adapt to the
+        # stable time step rather than landing on a uniform grid. They cannot be
+        # reconstructed from the duration and the array length, so the series is
+        # published alongside the two curves that share its axis. Published once,
+        # under one name: a previous `flume_time_s` alias for the same array is
+        # gone, so a reader cannot mistake it for wall-clock time.
+        "time_s": run["time_s"],
         "anuga_floodshield_curve": run["anuga_depth_m"],
         "analytical_curve": run["ritter_depth_m"],
         "analytical_dam_section": run["analytical_dam_section"],

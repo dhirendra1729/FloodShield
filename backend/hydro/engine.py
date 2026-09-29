@@ -17,9 +17,12 @@ import time
 import warnings
 from typing import Callable
 
+import hashlib
+import json
 import numpy as np
 
 warnings.filterwarnings("ignore", message="Could not import mpi4py")
+warnings.filterwarnings("ignore", category=UserWarning, module="anuga.*")
 
 # ANUGA mutates global float printing / warnings on import
 import anuga  # noqa: E402
@@ -206,7 +209,7 @@ def _level_for_volume(terrain, cell_area: float, target_volume: float,
 def run_dam_break(dem_path: str,
                   params: BreachParams,
                   dam_fraction: float = 0.12,
-                  max_cells: int = 180_000,
+                  max_cells: int = 35_000,
                   manning_n: float = 0.05,
                   breach_model: str = "froehlich",
                   depth_threshold_m: float = 0.05,
@@ -231,6 +234,27 @@ def run_dam_break(dem_path: str,
     nested lists on the DEM grid), plus summary statistics.
     """
     t_start = time.time()
+
+    # Check cache first
+    cache_str = (f"{params.name}_{params.reservoir_volume_m3}_{params.dam_height_m}_"
+                 f"{params.failure_mode}_{breach_model}_{params.simulation_duration_s}_"
+                 f"{manning_n}_{max_cells}_{dam_lon}_{dam_lat}_{max_span_m}")
+    cache_key = hashlib.sha256(cache_str.encode()).hexdigest()[:16]
+
+    if cache_key in _RESULT_CACHE:
+        return _RESULT_CACHE[cache_key]
+
+    if datadir:
+        disk_cache_file = os.path.join(datadir, f"cache_{cache_key}.json")
+        if os.path.exists(disk_cache_file):
+            try:
+                with open(disk_cache_file, "r") as f:
+                    cached = json.load(f)
+                    _RESULT_CACHE[cache_key] = cached
+                    return cached
+            except Exception:
+                pass
+
     if progress:
         progress(0.05, "Loading DEM")
 
@@ -509,7 +533,7 @@ def run_dam_break(dem_path: str,
     if progress:
         progress(1.0, "done")
 
-    return {
+    result = {
         "engine": "anuga",
         "anuga_version": ANUGA_VERSION,
         "crs": f"EPSG:{epsg}",
@@ -553,3 +577,13 @@ def run_dam_break(dem_path: str,
             "simulated_duration_s": duration,
         },
     }
+
+    _RESULT_CACHE[cache_key] = result
+    if datadir:
+        try:
+            with open(os.path.join(datadir, f"cache_{cache_key}.json"), "w") as f:
+                json.dump(result, f)
+        except Exception:
+            pass
+
+    return result

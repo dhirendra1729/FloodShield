@@ -280,6 +280,23 @@ class TestNoFabricatedMetrics(unittest.TestCase):
                     found.append(os.path.join(root, fn))
         return found
 
+    @staticmethod
+    def _strip_comments(src):
+        """Remove comments so a guard cannot fire on its own documentation.
+
+        A comment recording that a dependency was removed is not a live
+        reference to it; without this, explaining a fix would break the guard
+        that protects it. The negative lookbehind keeps the "//" in a URL
+        scheme ("https://...") from being read as a line comment.
+        """
+        src = re.sub(r"/\*.*?\*/", "", src, flags=re.DOTALL)
+        return re.sub(r"(?<!:)//[^\n]*", "", src)
+
+    def _frontend_code(self):
+        for path in self._frontend_sources():
+            with open(path, encoding="utf-8") as fh:
+                yield path, self._strip_comments(fh.read())
+
     def test_06_frontend_displays_no_literal_statistic(self):
         """Every metric shown in the UI must come from an API response."""
         pattern = re.compile(
@@ -309,6 +326,63 @@ class TestNoFabricatedMetrics(unittest.TestCase):
                 total, 1,
                 f"raster extent coordinate {coord} appears {total}x across the "
                 f"frontend; declare it once and reference it")
+
+    def test_08_no_literal_percentage_in_jsx_text(self):
+        """A percentage written as element text is a fabricated metric.
+
+        test_06 covers a metric assigned to a name. It missed the Mass Balance
+        Drift tile, which rendered a bare "-0.00%" as JSX text next to a green
+        tick, so the panel reported a conserved mass balance whether or not the
+        run had conserved anything.
+
+        Requiring a decimal point keeps prose like "100% coverage" out of scope
+        while catching the fabricated-precision signature: an invented value
+        almost always carries digits after the point.
+        """
+        pattern = re.compile(r">\s*-?\d+\.\d+\s*%\s*<")
+        for path, src in self._frontend_code():
+            m = pattern.search(src)
+            if m is not None:
+                self.fail(
+                    f"{os.path.relpath(path, BACKEND_DIR)}: {m.group(0)!r} is a "
+                    f"percentage rendered as literal text; it would display as a "
+                    f"measured value")
+
+    def test_09_basemap_needs_no_api_key(self):
+        """The tile host must be a keyless service.
+
+        CARTO's basemaps now serve an "API KEY REQUIRED" watermark to
+        unregistered domains, which is what the demo was showing across the
+        entire map. Both replacement services are open.
+        """
+        allowed = ("server.arcgisonline.com", "tile.openstreetmap.org")
+        for path, src in self._frontend_code():
+            if "cartocdn.com" in src:
+                self.fail(
+                    f"{os.path.relpath(path, BACKEND_DIR)}: references "
+                    f"basemaps.cartocdn.com, which requires an API key")
+            for url in re.findall(r"https://([\w.-]+)/[^\s\"']*\{z\}", src):
+                self.assertIn(
+                    url, allowed,
+                    f"{os.path.relpath(path, BACKEND_DIR)}: tile host {url!r} is "
+                    f"not a known keyless basemap service")
+
+    def test_10_no_invented_contact_details(self):
+        """555-0100..0199 is the reserved fictional range; a number in it is a prop.
+
+        The previous UI built recipient phone numbers as
+        "+1 (555) 019-" + id, presenting a placeholder as a real contact. The
+        separator is required so that an unrelated literal such as a port
+        number like "localhost:5550" does not trip the guard.
+        """
+        pattern = re.compile(r"555[-\s)]\s*0?1\d")
+        for path, src in self._frontend_code():
+            m = pattern.search(src)
+            if m is not None:
+                self.fail(
+                    f"{os.path.relpath(path, BACKEND_DIR)}: {m.group(0)!r} is in "
+                    f"the reserved fictional 555-01xx range; it would present a "
+                    f"placeholder as a real contact number")
 
 
 class TestSatelliteProcessing(unittest.TestCase):

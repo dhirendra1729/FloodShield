@@ -4,8 +4,6 @@
 # Single startup runner for both FastAPI backend and Next.js frontend
 # ==============================================================================
 
-set -e
-
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
@@ -42,26 +40,60 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
     npm --prefix "$FRONTEND_DIR" install
 fi
 
+# Release a port without destroying work in progress.
+#
+# `fuser -k` sends SIGKILL, severing every open connection at once. If a
+# browser tab has a solve in flight the backend dies mid-request, and the Next
+# proxy reports "socket hang up" -- a confusing failure, because the backend is
+# healthy again a second later once the replacement is up. SIGTERM first:
+# uvicorn shuts down gracefully on it and lets the running solve finish.
+free_port() {
+    local port="$1"
+    local limit="${2:-30}"
+
+    fuser "$port/tcp" >/dev/null 2>&1 || return 0
+
+    echo -e "${YELLOW}Port $port is held; asking the old process to finish...${NC}"
+    fuser -k -TERM "$port/tcp" 2>/dev/null || true
+
+    local waited=0
+    while [ "$waited" -lt "$limit" ]; do
+        fuser "$port/tcp" >/dev/null 2>&1 || return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    echo -e "${YELLOW}Port $port still held after ${limit}s; forcing it.${NC}"
+    fuser -k -KILL "$port/tcp" 2>/dev/null || true
+    return 0
+}
+
 # Cleanup handler for graceful shutdown
 cleanup() {
     echo -e "\n${YELLOW}Shutting down FloodShield services...${NC}"
     if [ -n "$BACKEND_PID" ]; then
         kill "$BACKEND_PID" 2>/dev/null || true
     fi
-    # Also free ports 8000 and 3000 if occupied
-    fuser -k 8000/tcp 2>/dev/null || true
-    fuser -k 3000/tcp 2>/dev/null || true
+    # Shorter waits here: an explicit shutdown is intentional, so do not hold
+    # the terminal for a solve the user has already asked to abandon.
+    free_port 8000 10
+    free_port 3000 5
     echo -e "${GREEN}All services stopped cleanly.${NC}"
     exit 0
 }
 
 trap cleanup SIGINT SIGTERM EXIT
 
-# Free ports if previously left hanging
-fuser -k 8000/tcp 2>/dev/null || true
-fuser -k 3000/tcp 2>/dev/null || true
+# Free ports if a previous run was left behind.
+# Waits rather than kills, so restarting while a solve is running does not
+# throw that solve away.
+free_port 8000
+free_port 3000
 
 # 2. Launch FastAPI Backend
+# No --reload: it runs a second watcher process, and every reload discards the
+# in-memory flume benchmark, forcing a re-solve mid-demo. Restart to pick up
+# backend changes.
 echo -e "${GREEN}[2/3] Starting FastAPI Hydrodynamic Backend on port 8000...${NC}"
 cd "$BACKEND_DIR"
 $PYTHON_BIN -m uvicorn src.main:app --port 8000 --host 0.0.0.0 &
@@ -98,4 +130,5 @@ echo -e "${CYAN}----------------------------------------------------------------
 echo -e "${YELLOW}Press Ctrl+C to stop all services.${NC}"
 echo -e ""
 
-npm --prefix "$FRONTEND_DIR" run dev
+cd "$FRONTEND_DIR"
+npm run dev
