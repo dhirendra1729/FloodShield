@@ -1,789 +1,997 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { 
-  Waves, AlertTriangle, Play, Download, ShieldCheck, 
-  Clock, Navigation, Layers, Satellite, BarChart3, ChevronRight,
-  Info, Activity, RefreshCw, CheckCircle2, FileArchive, Globe
-} from 'lucide-react';
-import { AreaChart, Area, LineChart, Line, ResponsiveContainer, CartesianGrid, Tooltip, XAxis, YAxis, Legend } from 'recharts';
 
-export default function DamBreakStudio({ onSimulationComplete, onExportGis }: any) {
-  // Preset catalog
-  const [benchmarks, setBenchmarks] = useState<any[]>([]);
-  const [selectedDam, setSelectedDam] = useState<string>("machchhu-ii");
-  const [damDetails, setDamDetails] = useState<any>(null);
-  
-  // Simulation inputs
-  const [damHeight, setDamHeight] = useState<number>(25.0);
-  const [reservoirVolume, setReservoirVolume] = useState<number>(100.55);
-  const [crestLength, setCrestLength] = useState<number>(5125.0);
-  const [failureMode, setFailureMode] = useState<string>("overtopping");
-  const [breachModel, setBreachModel] = useState<string>("froehlich");
-  const [simulationHours, setSimulationHours] = useState<number>(4.0);
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  Download,
+  FileArchive,
+  Globe,
+  Info,
+  Layers,
+  Pause,
+  Play,
+  Satellite,
+  Waves,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-  // States
-  const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const [simResults, setSimResults] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'hydrograph' | 'timeline' | 'benchmark' | 'satellite' | 'hadr'>('hydrograph');
-  
-  // Timeline playback state
-  const [playbackTimeIdx, setPlaybackTimeIdx] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+import {
+  Badge,
+  Button,
+  Callout,
+  EmptyState,
+  Panel,
+  Segmented,
+  SelectField,
+  Skeleton,
+  Slider,
+  Stat,
+  TabPanel,
+  Tabs,
+  type SegmentedOption,
+  type SelectOption,
+  type TabItem,
+  type Tone,
+} from "@/components/ui";
+import { driftHint, driftTone } from "@/lib/metrics";
 
-  // Delft3D & SPH benchmark data
+/* -------------------------------------------------------------------------- */
+/* API shapes                                                                 */
+/* -------------------------------------------------------------------------- */
+
+interface DamPreset {
+  id: string;
+  name: string;
+  state: string;
+  dam_height_m: number;
+  reservoir_volume_mcm: number;
+  crest_length_m: number;
+  failure_mode?: string;
+  default_model?: string;
+  latitude?: number;
+  longitude?: number;
+  historical_event?: string;
+}
+
+interface SimResult {
+  status: "success";
+  dam_name: string;
+  failure_mode: string;
+  breach_model: string;
+  terrain?: { dataset: string; tile: string; cell_size_m: number };
+  breach_summary: {
+    peak_discharge_m3s: number;
+    formation_time_min: number;
+    breach_width_m: number;
+    volume_drained_mcm: number;
+  };
+  hydrograph: { time_minutes: number[]; discharge_m3s: number[] };
+  hydrodynamics: {
+    engine: string;
+    max_depth_m: number;
+    max_velocity_mps: number;
+    inundated_area_km2: number;
+    downstream_inundated_area_km2: number;
+    downstream_first_arrival_min: number;
+    mass_conservation_volume_drift_pct: number;
+    wall_time_s: number;
+    grid_shape: number[];
+  };
+  timeline: {
+    time_minutes: number;
+    wave_front_distance_km: number;
+    inundated_km2: number;
+  }[];
+  hadr_settlements: {
+    village_name: string;
+    distance_km: number;
+    wave_arrival_min: number | null;
+    estimated_depth_m: number;
+    hazard_level: string;
+    evacuation_status: string;
+  }[];
+}
+
+type TabId = "hydrograph" | "timeline" | "benchmark" | "satellite" | "hadr";
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const FAILURE_MODES: SegmentedOption<string>[] = [
+  { value: "overtopping", label: "Overtopping" },
+  { value: "piping", label: "Piping" },
+  { value: "sudden_collapse", label: "Sudden" },
+];
+
+const BREACH_MODELS: SelectOption[] = [
+  { value: "froehlich", label: "Froehlich (2008) — non-homogeneous" },
+  { value: "macdonald", label: "MacDonald & Langridge-Monopolis (1984)" },
+  { value: "von_thun", label: "Von Thun & Gillette (1990)" },
+];
+
+const TABS: TabItem<TabId>[] = [
+  { id: "hydrograph", label: "Breach hydrograph", icon: <BarChart3 className="w-3.5 h-3.5" /> },
+  { id: "timeline", label: "Wavefront", icon: <Clock className="w-3.5 h-3.5" /> },
+  { id: "benchmark", label: "Analytical benchmark", icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  { id: "satellite", label: "Sentinel-1 SAR", icon: <Satellite className="w-3.5 h-3.5" /> },
+  { id: "hadr", label: "Downstream impact", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+];
+
+const CHART_TOOLTIP = {
+  background: "#1f1f21",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 8,
+  fontSize: 12,
+} as const;
+
+function hazardTone(level: string): Tone {
+  switch (level) {
+    case "EXTREME":
+      return "danger";
+    case "HIGH":
+      return "warning";
+    case "MODERATE":
+      return "info";
+    case "NONE":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface DamBreakStudioProps {
+  onSimulationComplete?: (result: SimResult) => void;
+}
+
+export default function DamBreakStudio({ onSimulationComplete }: DamBreakStudioProps) {
+  const [benchmarks, setBenchmarks] = useState<DamPreset[]>([]);
+  const [selectedDam, setSelectedDam] = useState<string>("");
+  const [damDetails, setDamDetails] = useState<DamPreset | null>(null);
+
+  const [damHeight, setDamHeight] = useState(25);
+  const [reservoirVolume, setReservoirVolume] = useState(100.55);
+  const [crestLength, setCrestLength] = useState(5125);
+  const [failureMode, setFailureMode] = useState("overtopping");
+  const [breachModel, setBreachModel] = useState("froehlich");
+  const [simulationHours, setSimulationHours] = useState(4);
+
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simResults, setSimResults] = useState<SimResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("hydrograph");
+
+  const [playbackIdx, setPlaybackIdx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
   const [benchmarkData, setBenchmarkData] = useState<any>(null);
   const [satelliteData, setSatelliteData] = useState<any>(null);
-  const [isExportingShp, setIsExportingShp] = useState<boolean>(false);
-  const [isExportingKml, setIsExportingKml] = useState<boolean>(false);
+  const [exporting, setExporting] = useState<"shp" | "kml" | null>(null);
 
-  // 1. Load Dam Catalog
-  useEffect(() => {
-    fetch('/api/dam/catalog')
-      .then(res => res.json())
-      .then(data => {
-        if (data.status === 'success' && data.benchmarks) {
-          setBenchmarks(data.benchmarks);
-          const defaultDam = data.benchmarks.find((b: any) => b.id === 'machchhu-ii') || data.benchmarks[0];
-          applyDamPreset(defaultDam);
-        }
-      })
-      .catch(err => console.error("Error fetching dam catalog:", err));
-  }, []);
+  /* --- Catalog ---------------------------------------------------------- */
 
-  const applyDamPreset = (dam: any) => {
-    if (!dam) return;
+  const applyPreset = useCallback((dam: DamPreset) => {
     setDamDetails(dam);
     setSelectedDam(dam.id);
     setDamHeight(dam.dam_height_m);
     setReservoirVolume(dam.reservoir_volume_mcm);
     setCrestLength(dam.crest_length_m);
-    setFailureMode(dam.failure_mode || "overtopping");
-    setBreachModel(dam.default_model || "froehlich");
-  };
+    setFailureMode(dam.failure_mode ?? "overtopping");
+    setBreachModel(dam.default_model ?? "froehlich");
+  }, []);
 
-  const handleDamSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const damId = e.target.value;
-    const found = benchmarks.find(b => b.id === damId);
-    if (found) {
-      applyDamPreset(found);
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/dam/catalog", { cache: "no-store" });
+        const json = await res.json();
+        if (cancelled || json.status !== "success" || !json.benchmarks?.length) return;
+        setBenchmarks(json.benchmarks);
+        const preferred =
+          json.benchmarks.find((b: DamPreset) => b.id === "machchhu-ii") ??
+          json.benchmarks[0];
+        applyPreset(preferred);
+      } catch {
+        if (!cancelled) setRunError("Could not load the dam catalogue from the backend.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyPreset]);
 
-  // 2. Run Dam Break Hydrodynamic Simulation
-  const handleRunSimulation = async () => {
-    setIsSimulating(true);
+  const damOptions: SelectOption[] = useMemo(
+    () =>
+      benchmarks.map((b) => ({
+        value: b.id,
+        label: `${b.name} — ${b.state}`,
+      })),
+    [benchmarks],
+  );
+
+  /* --- Runners ---------------------------------------------------------- */
+
+  const loadBenchmark = useCallback(async () => {
     try {
-      const payload = {
-        dam_name: damDetails?.name || selectedDam,
-        dam_height_m: damHeight,
-        reservoir_volume_mcm: reservoirVolume,
-        crest_length_m: crestLength,
-        failure_mode: failureMode,
-        breach_model: breachModel,
-        simulation_hours: simulationHours,
-        latitude: damDetails?.latitude || 22.7667,
-        longitude: damDetails?.longitude || 70.8667
-      };
+      const res = await fetch("/api/dam/benchmark", { cache: "no-store" });
+      const data = await res.json();
+      if (data.status !== "success") return;
+      // The comparison is against a closed-form solution, not another solver:
+      // one series is the numerical result, the other the exact reference.
+      const chartData = (data.time_s ?? []).map((t: number, i: number) => ({
+        time: t,
+        anuga: data.anuga_floodshield_curve?.[i],
+        analytical: data.analytical_curve?.[i],
+      }));
+      setBenchmarkData({ ...data, chartData });
+    } catch {
+      /* The tab renders its own unavailable state. */
+    }
+  }, []);
 
-      const res = await fetch('/api/dam/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+  const loadSatellite = useCallback(async (damName: string) => {
+    try {
+      const res = await fetch("/api/satellite/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dam_name: damName }),
+      });
+      setSatelliteData(await res.json());
+    } catch (err) {
+      // Keep the failure envelope: "no scene available" is a real answer and
+      // must not be replaced by a placeholder score.
+      setSatelliteData({ status: "error", message: String(err) });
+    }
+  }, []);
+
+  const runSimulation = useCallback(async () => {
+    setIsSimulating(true);
+    setRunError(null);
+    try {
+      const res = await fetch("/api/dam/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dam_name: damDetails?.name ?? selectedDam,
+          dam_height_m: damHeight,
+          reservoir_volume_mcm: reservoirVolume,
+          crest_length_m: crestLength,
+          failure_mode: failureMode,
+          breach_model: breachModel,
+          simulation_hours: simulationHours,
+          latitude: damDetails?.latitude ?? 22.7667,
+          longitude: damDetails?.longitude ?? 70.8667,
+        }),
       });
       const data = await res.json();
-      if (data.status === 'success') {
-        setSimResults(data);
-        setPlaybackTimeIdx(data.timeline ? data.timeline.length - 1 : 0);
-        if (onSimulationComplete) {
-          onSimulationComplete(data);
-        }
-        
-        // Also fetch benchmark data
-        fetchBenchmarkComparison();
-        // Also fetch satellite data
-        fetchSatelliteVerification(damDetails?.name || selectedDam);
-      } else {
-        alert("Simulation Error: " + data.message);
+      if (data.status !== "success") {
+        throw new Error(data.message ?? "the solver returned no result");
       }
-    } catch (err: any) {
-      alert("Failed to connect to simulation engine: " + err.message);
+      setSimResults(data);
+      setPlaybackIdx(data.timeline ? data.timeline.length - 1 : 0);
+      onSimulationComplete?.(data);
+      loadBenchmark();
+      loadSatellite(damDetails?.name ?? selectedDam);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "the solver returned no result");
     } finally {
       setIsSimulating(false);
     }
-  };
+  }, [
+    damDetails,
+    selectedDam,
+    damHeight,
+    reservoirVolume,
+    crestLength,
+    failureMode,
+    breachModel,
+    simulationHours,
+    onSimulationComplete,
+    loadBenchmark,
+    loadSatellite,
+  ]);
 
-  const fetchBenchmarkComparison = async () => {
-    try {
-      const res = await fetch('/api/dam/benchmark');
-      const data = await res.json();
-      if (data.status === 'success') {
-        // Format for Recharts. The comparison is against the exact analytical
-        // solution, not another solver, so the two series are the numerical
-        // result and the closed-form reference.
-        const chartData = (data.flume_time_s || []).map((t: number, i: number) => ({
-          time: t,
-          anuga: data.anuga_floodshield_curve[i],
-          analytical: data.analytical_curve[i],
-        }));
-        setBenchmarkData({ ...data, chartData });
-      }
-    } catch (err) {
-      console.error("Benchmark error:", err);
-    }
-  };
-
-  const fetchSatelliteVerification = async (damName: string) => {
-    try {
-      const res = await fetch('/api/satellite/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dam_name: damName })
-      });
-      const data = await res.json();
-      // Keep the error envelope too: "no scene is available" is a real result
-      // and the panel must say so rather than fall back to placeholder scores.
-      setSatelliteData(data);
-    } catch (err) {
-      console.error("Satellite error:", err);
-      setSatelliteData({ status: 'error', message: String(err) });
-    }
-  };
-
-  // 3. GIS Downloads
-  const downloadShapefile = async () => {
-    setIsExportingShp(true);
-    try {
-      const res = await fetch('/api/gis/export/shp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dam_name: damDetails?.name || selectedDam })
-      });
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${selectedDam}_inundation_shapefile.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (e) {
-      alert("Shapefile export failed");
-    } finally {
-      setIsExportingShp(false);
-    }
-  };
-
-  const downloadKml = async () => {
-    setIsExportingKml(true);
-    try {
-      const res = await fetch('/api/gis/export/kml', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dam_name: damDetails?.name || selectedDam })
-      });
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${selectedDam}_inundation.kml`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (e) {
-      alert("KML export failed");
-    } finally {
-      setIsExportingKml(false);
-    }
-  };
-
-  // Timeline playback animation
-  useEffect(() => {
-    let interval: any = null;
-    if (isPlaying && simResults?.timeline) {
-      interval = setInterval(() => {
-        setPlaybackTimeIdx(prev => {
-          if (prev >= simResults.timeline.length - 1) {
-            setIsPlaying(false);
-            return prev;
-          }
-          return prev + 1;
+  const exportGis = useCallback(
+    async (kind: "shp" | "kml") => {
+      setExporting(kind);
+      try {
+        const res = await fetch(`/api/gis/export/${kind}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dam_name: damDetails?.name ?? selectedDam }),
         });
-      }, 800);
-    }
-    return () => clearInterval(interval);
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download =
+          kind === "shp"
+            ? `${selectedDam}_inundation_shapefile.zip`
+            : `${selectedDam}_inundation.kml`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } catch {
+        setRunError(`The ${kind.toUpperCase()} export failed.`);
+      } finally {
+        setExporting(null);
+      }
+    },
+    [damDetails, selectedDam],
+  );
+
+  /* --- Playback --------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!isPlaying || !simResults?.timeline) return;
+    const id = setInterval(() => {
+      setPlaybackIdx((prev) => {
+        if (prev >= simResults.timeline.length - 1) {
+          setIsPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 800);
+    return () => clearInterval(id);
   }, [isPlaying, simResults]);
 
-  // Format hydrograph for Recharts
-  const hydrographChartData = simResults?.hydrograph ? 
-    simResults.hydrograph.time_minutes.map((t: number, i: number) => ({
-      time: t,
-      discharge: simResults.hydrograph.discharge_m3s[i]
-    })) : [];
+  /* --- Derived ---------------------------------------------------------- */
 
-  const currentFrame = simResults?.timeline ? simResults.timeline[playbackTimeIdx] : null;
+  const hydrographData = useMemo(
+    () =>
+      simResults?.hydrograph
+        ? simResults.hydrograph.time_minutes.map((t, i) => ({
+            time: t,
+            discharge: simResults.hydrograph.discharge_m3s[i],
+          }))
+        : [],
+    [simResults],
+  );
+
+  const currentFrame = simResults?.timeline?.[playbackIdx] ?? null;
+  const h = simResults?.hydrodynamics ?? null;
+  const b = simResults?.breach_summary ?? null;
+  const drift = h?.mass_conservation_volume_drift_pct ?? null;
 
   return (
-    <div className="max-w-[1300px] w-full flex flex-col gap-4 pointer-events-auto self-start mt-2 ml-4 pb-12">
-      {/* Top Header Card */}
-      <header className="flex justify-between items-center bg-surface-glass backdrop-blur-24 border border-white/10 p-4 rounded-xl shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/20 rounded-lg border border-primary/30 text-primary">
-            <Waves className="w-6 h-6 animate-pulse" />
-          </div>
+    <div className="h-full min-h-0 flex flex-col xl:flex-row overflow-hidden">
+      {/* ==================================================================== */}
+      {/* Scenario controls                                                    */}
+      {/* ==================================================================== */}
+      <aside className="xl:w-[340px] shrink-0 border-b xl:border-b-0 xl:border-r border-edge bg-surface-sunken/60 overflow-y-auto fs-scroll max-h-[50vh] xl:max-h-none">
+        <div className="p-4 space-y-5">
           <div>
-            <h1 className="font-title-lg text-lg text-on-surface m-0 flex items-center gap-2">
-              Dam Break Inundation Modeling Studio
-              <span className="text-[10px] font-label-caps px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
-                SIH26161 NTRO
-              </span>
-            </h1>
-            <p className="font-label-caps text-[11px] text-on-surface-variant mt-0.5">
-              Numerical Hydrodynamics (ANUGA 4.0.1 2D SWE + Delft3D Benchmark + PySPH Front)
+            <h2 className="text-sm font-semibold text-content">Scenario</h2>
+            <p className="text-2xs text-content-faint mt-1">
+              Presets carry CWC NRLD / NDSA geometry. Editing a slider overrides the
+              preset for this run only.
             </p>
           </div>
-        </div>
 
-        {/* GIS Action Toolbar */}
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={downloadShapefile}
-            disabled={isExportingShp}
-            className="px-3 py-1.5 bg-surface-container-high/60 hover:bg-white/10 text-on-surface text-xs font-data-mono font-bold flex items-center gap-1.5 border border-white/10 rounded-lg transition-all active:scale-95 cursor-pointer"
-            title="Download standard ESRI Shapefile (.zip) for QGIS/ArcGIS"
-          >
-            <FileArchive className="w-3.5 h-3.5 text-secondary" />
-            {isExportingShp ? "Exporting..." : "Export .SHP"}
-          </button>
-          <button 
-            onClick={downloadKml}
-            disabled={isExportingKml}
-            className="px-3 py-1.5 bg-surface-container-high/60 hover:bg-white/10 text-on-surface text-xs font-data-mono font-bold flex items-center gap-1.5 border border-white/10 rounded-lg transition-all active:scale-95 cursor-pointer"
-            title="Download Google Earth KML"
-          >
-            <Globe className="w-3.5 h-3.5 text-primary" />
-            {isExportingKml ? "Exporting..." : "Export .KML"}
-          </button>
-        </div>
-      </header>
+          <SelectField
+            label="Dam preset"
+            value={selectedDam}
+            options={
+              damOptions.length
+                ? damOptions
+                : [{ value: "", label: "Loading catalogue…", disabled: true }]
+            }
+            onChange={(id) => {
+              const found = benchmarks.find((d) => d.id === id);
+              if (found) applyPreset(found);
+            }}
+          />
 
-      {/* Main Grid: Left Controls (340px) + Right Analytical Center */}
-      <div className="flex gap-4 items-start">
-        {/* LEFT COLUMN: SCENARIO PARAMETERS */}
-        <div className="w-[340px] shrink-0 bg-surface-glass backdrop-blur-24 rounded-xl p-4 flex flex-col gap-4 shadow-xl border border-white/10">
-          <div className="border-b border-white/10 pb-3">
-            <label className="text-[10px] font-label-caps text-on-surface-variant block mb-1">
-              Select Indian Dam Preset (NDSA Registry):
-            </label>
-            <select 
-              value={selectedDam} 
-              onChange={handleDamSelect}
-              className="w-full bg-surface-container-highest/60 border border-white/10 rounded-lg px-3 py-2 text-xs font-semibold text-on-surface focus:outline-none focus:border-primary"
-            >
-              {benchmarks.map((b) => (
-                <option key={b.id} value={b.id} className="bg-[#1f1f21]">
-                  {b.name} ({b.state})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Historical Description Box */}
           {damDetails?.historical_event && (
-            <div className="p-2.5 rounded-lg bg-surface-container-high/40 border border-white/5 text-[11px] text-on-surface-variant leading-relaxed">
-              <span className="font-bold text-primary flex items-center gap-1 mb-1">
-                <Info className="w-3 h-3" /> Historical Context:
-              </span>
-              {damDetails.historical_event}
+            <div className="fs-panel-solid px-3.5 py-3">
+              <p className="fs-label flex items-center gap-1.5 mb-1.5">
+                <Info className="w-3 h-3" aria-hidden />
+                Historical record
+              </p>
+              <p className="text-xs text-content-subtle leading-relaxed">
+                {damDetails.historical_event}
+              </p>
             </div>
           )}
 
-          {/* Sliders & Geometry */}
-          <div className="flex flex-col gap-3">
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="text-on-surface-variant font-label-caps">Dam Height ($H_d$)</span>
-                <span className="font-data-mono text-secondary font-bold">{damHeight} m</span>
-              </div>
-              <input 
-                type="range" min="5" max="150" step="1" 
-                value={damHeight} 
-                onChange={e => setDamHeight(Number(e.target.value))}
-                className="w-full accent-primary h-1 bg-white/20 rounded"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="text-on-surface-variant font-label-caps">Reservoir Storage ($V_w$)</span>
-                <span className="font-data-mono text-secondary font-bold">{reservoirVolume} MCM</span>
-              </div>
-              <input 
-                type="range" min="0.5" max="1000" step="0.5" 
-                value={reservoirVolume} 
-                onChange={e => setReservoirVolume(Number(e.target.value))}
-                className="w-full accent-primary h-1 bg-white/20 rounded"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="text-on-surface-variant font-label-caps">Crest Length ($L_c$)</span>
-                <span className="font-data-mono text-secondary font-bold">{crestLength} m</span>
-              </div>
-              <input 
-                type="range" min="50" max="6000" step="50" 
-                value={crestLength} 
-                onChange={e => setCrestLength(Number(e.target.value))}
-                className="w-full accent-primary h-1 bg-white/20 rounded"
-              />
-            </div>
-
-            {/* Failure Mode Selector */}
-            <div className="pt-2 border-t border-white/10">
-              <label className="text-[10px] font-label-caps text-on-surface-variant block mb-1.5">
-                Failure Mechanism:
-              </label>
-              <div className="grid grid-cols-3 gap-1">
-                <button 
-                  onClick={() => setFailureMode('overtopping')}
-                  className={`py-1 text-[10px] font-bold rounded border transition-colors ${failureMode === 'overtopping' ? 'bg-status-emergency/20 border-status-emergency text-status-emergency' : 'border-white/10 text-on-surface-variant hover:bg-white/5'}`}
-                >
-                  OVERTOP
-                </button>
-                <button 
-                  onClick={() => setFailureMode('piping')}
-                  className={`py-1 text-[10px] font-bold rounded border transition-colors ${failureMode === 'piping' ? 'bg-secondary/20 border-secondary text-secondary' : 'border-white/10 text-on-surface-variant hover:bg-white/5'}`}
-                >
-                  PIPING
-                </button>
-                <button 
-                  onClick={() => setFailureMode('sudden_collapse')}
-                  className={`py-1 text-[10px] font-bold rounded border transition-colors ${failureMode === 'sudden_collapse' ? 'bg-status-warning/20 border-status-warning text-status-warning' : 'border-white/10 text-on-surface-variant hover:bg-white/5'}`}
-                >
-                  SUDDEN
-                </button>
-              </div>
-            </div>
-
-            {/* Empirical Breach Formulation */}
-            <div>
-              <label className="text-[10px] font-label-caps text-on-surface-variant block mb-1">
-                Empirical Breach Formulation:
-              </label>
-              <select 
-                value={breachModel} 
-                onChange={e => setBreachModel(e.target.value)}
-                className="w-full bg-surface-container-highest/60 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-data-mono text-on-surface"
-              >
-                <option value="froehlich">Froehlich (2008) - Non-homogeneous</option>
-                <option value="macdonald">MacDonald & Langridge (1984)</option>
-                <option value="von_thun">Von Thun & Gillette (1990)</option>
-              </select>
-            </div>
+          <div className="space-y-1">
+            <Slider
+              label="Dam height, H_d"
+              value={damHeight}
+              min={5}
+              max={150}
+              step={1}
+              unit="m"
+              onChange={setDamHeight}
+            />
+            <Slider
+              label="Reservoir storage, V_w"
+              value={reservoirVolume}
+              min={0.5}
+              max={1000}
+              step={0.5}
+              unit="MCM"
+              onChange={setReservoirVolume}
+            />
+            <Slider
+              label="Crest length, L_c"
+              value={crestLength}
+              min={50}
+              max={6000}
+              step={50}
+              unit="m"
+              onChange={setCrestLength}
+            />
+            <Slider
+              label="Simulation window"
+              value={simulationHours}
+              min={1}
+              max={12}
+              step={0.5}
+              unit="h"
+              onChange={setSimulationHours}
+            />
           </div>
 
-          {/* Action Trigger */}
-          <button 
-            onClick={handleRunSimulation}
-            disabled={isSimulating}
-            className={`w-full mt-2 py-2.5 rounded-lg text-xs font-bold font-data-mono flex items-center justify-center gap-2 transition-all active:scale-95 ${isSimulating ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary/20 hover:bg-primary/30 border border-primary text-primary shadow-[0_0_20px_rgba(190,198,224,0.15)] cursor-pointer'}`}
+          <div>
+            <p className="fs-label mb-2">Failure mechanism</p>
+            <Segmented
+              label="Failure mechanism"
+              options={FAILURE_MODES}
+              value={failureMode}
+              onChange={setFailureMode}
+              className="w-full"
+            />
+          </div>
+
+          <SelectField
+            label="Breach formulation"
+            value={breachModel}
+            options={BREACH_MODELS}
+            onChange={setBreachModel}
+            hint="Empirical peak-discharge and breach-width relations."
+          />
+
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full"
+            loading={isSimulating}
+            loadingLabel="Solving 2D shallow water…"
+            onClick={runSimulation}
           >
-            {isSimulating ? (
-              <><RefreshCw className="w-4 h-4 animate-spin text-primary" /> SOLVING SWE 2D MESH...</>
-            ) : (
-              <><Play className="w-4 h-4 fill-primary" /> RUN HYDRODYNAMIC MODEL</>
-            )}
-          </button>
+            <Play className="w-4 h-4" aria-hidden />
+            Run hydrodynamic model
+          </Button>
+
+          {runError && <Callout tone="danger" title="Run failed">{runError}</Callout>}
         </div>
+      </aside>
 
-        {/* RIGHT COLUMN: ANALYTICAL SUITE */}
-        <div className="flex-1 flex flex-col gap-4">
-          {/* Top Metric Strip */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-3 border border-white/10 shadow-lg">
-              <span className="text-[10px] font-label-caps text-on-surface-variant block">Peak Outflow ($Q_p$)</span>
-              <div className="text-xl font-data-mono font-bold text-status-emergency mt-0.5">
-                {simResults ? simResults.breach_summary.peak_discharge_m3s.toLocaleString() : "--"} <span className="text-xs font-normal">m³/s</span>
-              </div>
-              <span className="text-[9px] text-on-surface-variant/80 font-data-mono mt-1 block">
-                Breach Width: {simResults ? `${simResults.breach_summary.breach_width_m}m` : "--"}
-              </span>
-            </div>
-
-            <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-3 border border-white/10 shadow-lg">
-              <span className="text-[10px] font-label-caps text-on-surface-variant block">Max Water Depth</span>
-              <div className="text-xl font-data-mono font-bold text-primary mt-0.5">
-                {simResults ? `${simResults.hydrodynamics.max_depth_m} m` : "--"}
-              </div>
-              <span className="text-[9px] text-on-surface-variant/80 font-data-mono mt-1 block">
-                Wave Speed: {simResults ? `${simResults.hydrodynamics.max_velocity_mps} m/s` : "--"}
-              </span>
-            </div>
-
-            <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-3 border border-white/10 shadow-lg">
-              <span className="text-[10px] font-label-caps text-on-surface-variant block">Inundation Perimeter</span>
-              <div className="text-xl font-data-mono font-bold text-secondary mt-0.5">
-                {simResults ? `${simResults.hydrodynamics.inundated_area_km2} km²` : "--"}
-              </div>
-              <span className="text-[9px] text-on-surface-variant/80 font-data-mono mt-1 block">
-                Formation: {simResults ? `${simResults.breach_summary.formation_time_min} min` : "--"}
-              </span>
-            </div>
-
-            <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-3 border border-white/10 shadow-lg">
-              <span className="text-[10px] font-label-caps text-on-surface-variant block">Mass Balance Drift</span>
-              <div className="text-xl font-data-mono font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                -0.00%
-              </div>
-              <span className="text-[9px] text-emerald-400/80 font-data-mono mt-1 block">
-                Finite-Volume Conserved
-              </span>
-            </div>
+      {/* ==================================================================== */}
+      {/* Results                                                              */}
+      {/* ==================================================================== */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        {/* Header ---------------------------------------------------------- */}
+        <header className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-edge bg-surface-sunken/40">
+          <div className="min-w-0">
+            <h2 className="text-md font-semibold text-content flex items-center gap-2">
+              <Waves className="w-4 h-4 text-brand shrink-0" aria-hidden />
+              <span className="truncate">Dam-break inundation studio</span>
+            </h2>
+            <p className="text-2xs text-content-faint mt-0.5 truncate">
+              {h?.engine ?? "ANUGA 4.x 2D finite-volume shallow-water solver"}
+            </p>
           </div>
 
-          {/* Sub-Tabs: Hydrograph vs Wavefront Timeline vs Delft3D vs Satellite vs HADR */}
-          <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-4 border border-white/10 shadow-xl flex flex-col gap-4">
-            <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setActiveTab('hydrograph')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-data-mono font-bold transition-all ${activeTab === 'hydrograph' ? 'bg-primary/20 text-primary border border-primary/30' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                >
-                  Breach Hydrograph $Q(t)$
-                </button>
-                <button 
-                  onClick={() => setActiveTab('timeline')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-data-mono font-bold transition-all ${activeTab === 'timeline' ? 'bg-primary/20 text-primary border border-primary/30' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                >
-                  Wavefront Player (T_arrival)
-                </button>
-                <button 
-                  onClick={() => setActiveTab('benchmark')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-data-mono font-bold transition-all ${activeTab === 'benchmark' ? 'bg-secondary/20 text-secondary border border-secondary/30' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                >
-                  Delft3D & SPH Benchmark
-                </button>
-                <button 
-                  onClick={() => setActiveTab('satellite')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-data-mono font-bold transition-all ${activeTab === 'satellite' ? 'bg-status-warning/20 text-status-warning border border-status-warning/30' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                >
-                  Sentinel-1 SAR Ground Truth
-                </button>
-                <button 
-                  onClick={() => setActiveTab('hadr')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-data-mono font-bold transition-all ${activeTab === 'hadr' ? 'bg-status-emergency/20 text-status-emergency border border-status-emergency/30' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/5'}`}
-                >
-                  Downstream Impact
-                </button>
-              </div>
-            </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={exporting !== null}
+              onClick={() => exportGis("shp")}
+              title="Download an ESRI Shapefile bundle for QGIS or ArcGIS"
+            >
+              <FileArchive className="w-3.5 h-3.5" aria-hidden />
+              {exporting === "shp" ? "Exporting…" : "Shapefile"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={exporting !== null}
+              onClick={() => exportGis("kml")}
+              title="Download a KML for Google Earth"
+            >
+              <Globe className="w-3.5 h-3.5" aria-hidden />
+              {exporting === "kml" ? "Exporting…" : "KML"}
+            </Button>
+          </div>
+        </header>
 
-            {/* TAB 1: HYDROGRAPH */}
-            {activeTab === 'hydrograph' && (
-              <div className="h-[280px] w-full flex flex-col">
-                <div className="flex justify-between items-center mb-2 px-1">
-                  <span className="text-[11px] font-label-caps text-on-surface-variant">
-                    Mass-Balanced Breach Discharge Hydrograph (m³/s vs minutes)
-                  </span>
-                  <span className="text-[11px] font-data-mono text-secondary">
-                    Total Drained: {simResults ? `${simResults.breach_summary.volume_drained_mcm} MCM` : "--"}
-                  </span>
-                </div>
-                <div className="flex-1 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={hydrographChartData}>
-                      <defs>
-                        <linearGradient id="qGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ffb4ab" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="#ffb4ab" stopOpacity={0.05}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.08)" />
-                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#798098' }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#798098' }} tickLine={false} />
-                      <Tooltip contentStyle={{ backgroundColor: '#131315', border: '1px solid rgba(255,255,255,0.2)', fontSize: '11px' }} />
-                      <Area type="monotone" dataKey="discharge" stroke="#ffb4ab" strokeWidth={2} fill="url(#qGrad)" name="Discharge (m³/s)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
+        <div className="flex-1 min-h-0 overflow-y-auto fs-scroll p-4 sm:p-5 space-y-4">
+          {/* Metric strip ------------------------------------------------- */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Stat
+              label="Peak outflow, Q_p"
+              value={b?.peak_discharge_m3s ?? null}
+              precision={0}
+              unit="m³/s"
+              tone="danger"
+              hint={b ? `Breach width ${b.breach_width_m} m` : undefined}
+            />
+            <Stat
+              label="Max water depth"
+              value={h?.max_depth_m ?? null}
+              precision={2}
+              unit="m"
+              tone="brand"
+              hint={h ? `Peak velocity ${h.max_velocity_mps} m/s` : undefined}
+            />
+            <Stat
+              label="Inundated area"
+              value={h?.inundated_area_km2 ?? null}
+              precision={2}
+              unit="km²"
+              tone="info"
+              hint={b ? `Breach formed in ${b.formation_time_min} min` : undefined}
+            />
+            {/* Read from the solve, never from a literal. The previous build
+                hard-coded "-0.00%" here, so the tile showed a conserved mass
+                balance whether or not the run had conserved anything. */}
+            <Stat
+              label="Mass balance drift"
+              value={drift}
+              precision={4}
+              unit="%"
+              tone={driftTone(drift)}
+              hint={driftHint(drift)}
+            />
+          </div>
 
-            {/* TAB 2: TEMPORAL WAVEFRONT TIMELINE */}
-            {activeTab === 'timeline' && (
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center bg-surface-container-high/40 p-3 rounded-lg border border-white/5">
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => setIsPlaying(!isPlaying)}
-                      className="p-2 bg-primary/20 text-primary hover:bg-primary/30 rounded-full border border-primary/40 transition-colors"
-                    >
-                      {isPlaying ? <span className="material-symbols-outlined text-sm">pause</span> : <Play className="w-4 h-4 fill-primary" />}
-                    </button>
-                    <div>
-                      <span className="font-label-caps text-[10px] text-on-surface-variant block">Simulation Progress</span>
-                      <span className="font-data-mono text-sm font-bold text-on-surface">
-                        T + {currentFrame ? currentFrame.time_minutes : 0} Minutes
+          {/* Tabs --------------------------------------------------------- */}
+          <Panel flush bodyClassName="p-4 sm:p-5">
+            <Tabs items={TABS} value={activeTab} onChange={setActiveTab} className="border-b border-edge -mx-4 sm:-mx-5 px-4 sm:px-5 -mt-4 sm:-mt-5 pt-1 mb-4" />
+
+            {/* Hydrograph ------------------------------------------------- */}
+            <TabPanel id="hydrograph" active={activeTab === "hydrograph"}>
+              {!simResults ? (
+                <EmptyState
+                  icon={<BarChart3 className="w-7 h-7" />}
+                  title="No run yet"
+                  description="Set the scenario on the left and run the model. The breach discharge hydrograph appears here."
+                />
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="fs-label">
+                      Breach discharge against time
+                    </p>
+                    <p className="text-xs text-content-subtle">
+                      Volume drained{" "}
+                      <span className="fs-numeric text-content">
+                        {b?.volume_drained_mcm} MCM
                       </span>
-                    </div>
+                    </p>
                   </div>
-                  <div className="flex gap-6 text-xs font-data-mono">
-                    <div>
-                      <span className="text-[10px] text-on-surface-variant block font-label-caps">Wavefront Distance</span>
-                      <span className="text-secondary font-bold">{currentFrame ? `${currentFrame.wave_front_distance_km} km` : "--"}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-on-surface-variant block font-label-caps">Active Inundation</span>
-                      <span className="text-status-emergency font-bold">{currentFrame ? `${currentFrame.inundated_km2} km²` : "--"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="px-2">
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max={simResults?.timeline ? simResults.timeline.length - 1 : 12}
-                    value={playbackTimeIdx}
-                    onChange={e => {
-                      setPlaybackTimeIdx(Number(e.target.value));
-                      setIsPlaying(false);
-                    }}
-                    className="w-full accent-primary h-1.5 bg-white/20 rounded cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] font-data-mono text-on-surface-variant mt-1">
-                    <span>T+0h (Breach Initiation)</span>
-                    <span>T+2h (Peak Surge)</span>
-                    <span>T+4h (Downstream Inundation)</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 3: DELFT3D & SPH BENCHMARK */}
-            {activeTab === 'benchmark' && (
-              <div className="flex flex-col gap-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-on-surface-variant font-label-caps">
-                    Flume Dam Break vs Ritter (1892) Exact Solution — depth at a gauge 10 m downstream
-                  </span>
-                  <span className="text-emerald-400 font-data-mono font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {benchmarkData
-                      ? `Pearson R = ${benchmarkData.metrics?.pearson_correlation} | RMSE = ${benchmarkData.metrics?.rmse_m}m`
-                      : "running verification…"}
-                  </span>
-                </div>
-                <div className="h-[230px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={benchmarkData?.chartData || []}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.08)" />
-                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#798098' }} unit="s" />
-                      <YAxis tick={{ fontSize: 10, fill: '#798098' }} unit="m" />
-                      <Tooltip contentStyle={{ backgroundColor: '#131315', border: '1px solid rgba(255,255,255,0.2)', fontSize: '11px' }} />
-                      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                      <Line type="monotone" dataKey="analytical" stroke="#adc6ff" strokeWidth={2} name="Ritter (1892) exact solution" dot={false} />
-                      <Line type="monotone" dataKey="anuga" stroke="#22c55e" strokeWidth={2} name="FloodShield (ANUGA 4.0.1 SWE)" dot={false} strokeDasharray="4 4" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="text-[10px] text-on-surface-variant/70 leading-relaxed">
-                  Cross-solver comparison against Delft3D-FLOW and PySPH is reported as
-                  not executed: the Delft3D image here contains source only, and PySPH
-                  is not installed. No substitute curves are plotted.
-                </div>
-              </div>
-            )}
-
-            {/* TAB 4: SATELLITE VERIFICATION */}
-            {activeTab === 'satellite' && (
-              <div className="flex flex-col gap-3">
-                {/* Badges read the real metrics. They previously fell back to
-                    hard-coded strings ("65.6"%, "0.79"), which made an
-                    unverified run look like a scored one. */}
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-on-surface-variant font-label-caps">
-                    Sentinel-1 SAR C-band — Refined Lee filter + Otsu delineation
-                  </span>
-                  <div className="flex gap-2">
-                    {satelliteData?.ground_truth_metrics ? (
-                      <>
-                        <span className="bg-status-success/20 text-status-success px-2 py-0.5 rounded font-data-mono text-[10px] border border-status-success/30">
-                          IoU: {satelliteData.ground_truth_metrics.overlap_percentage}%
-                        </span>
-                        <span className="bg-primary/20 text-primary px-2 py-0.5 rounded font-data-mono text-[10px] border border-primary/30">
-                          F1: {satelliteData.ground_truth_metrics.dice_f1}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="bg-white/5 text-on-surface-variant px-2 py-0.5 rounded font-data-mono text-[10px] border border-white/10">
-                        NOT VERIFIED
-                      </span>
-                    )}
+                  <div className="h-64 sm:h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={hydrographData} margin={{ top: 8, right: 12, bottom: 20, left: 4 }}>
+                        <defs>
+                          <linearGradient id="qGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#ff8a80" stopOpacity={0.7} />
+                            <stop offset="95%" stopColor="#ff8a80" stopOpacity={0.04} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.07)" />
+                        <XAxis
+                          dataKey="time"
+                          tick={{ fontSize: 11, fill: "#9a9aa3" }}
+                          tickLine={false}
+                          label={{ value: "Time (min)", position: "insideBottom", offset: -12, fill: "#9a9aa3", fontSize: 11 }}
+                        />
+                        <YAxis tick={{ fontSize: 11, fill: "#9a9aa3" }} tickLine={false} width={64} />
+                        <Tooltip contentStyle={CHART_TOOLTIP} />
+                        <Area
+                          type="monotone"
+                          dataKey="discharge"
+                          stroke="#ff8a80"
+                          strokeWidth={2}
+                          fill="url(#qGrad)"
+                          name="Discharge (m³/s)"
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
+              )}
+            </TabPanel>
 
-                {satelliteData?.status === 'success' ? (
-                  <>
-                    <div className="p-4 rounded-lg bg-surface-container-high/40 border border-white/5 flex flex-col gap-2">
-                      <div className="flex items-center gap-2 text-xs font-semibold text-primary">
-                        <Satellite className="w-4 h-4" /> Scene Actually Processed
+            {/* Timeline --------------------------------------------------- */}
+            <TabPanel id="timeline" active={activeTab === "timeline"}>
+              {!simResults?.timeline?.length ? (
+                <EmptyState
+                  icon={<Clock className="w-7 h-7" />}
+                  title="No wavefront timeline"
+                  description="Run a scenario to step through wave arrival down the reach."
+                />
+              ) : (
+                <div className="space-y-4">
+                  <div className="fs-panel-solid p-3 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="!rounded-full !w-11 !h-11 !px-0"
+                        onClick={() => setIsPlaying((v) => !v)}
+                        aria-label={isPlaying ? "Pause playback" : "Play playback"}
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-4 h-4" aria-hidden />
+                        ) : (
+                          <Play className="w-4 h-4" aria-hidden />
+                        )}
+                      </Button>
+                      <div>
+                        <p className="fs-label">Elapsed</p>
+                        <p className="fs-numeric text-sm text-content">
+                          T + {currentFrame?.time_minutes ?? 0} min
+                        </p>
                       </div>
-                      <p className="text-[11px] font-data-mono text-on-surface break-all">
+                    </div>
+
+                    <div className="flex gap-6">
+                      <div>
+                        <p className="fs-label">Wavefront reach</p>
+                        <p className="fs-numeric text-sm text-info">
+                          {currentFrame ? `${currentFrame.wave_front_distance_km} km` : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="fs-label">Active inundation</p>
+                        <p className="fs-numeric text-sm text-danger">
+                          {currentFrame ? `${currentFrame.inundated_km2} km²` : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={simResults.timeline.length - 1}
+                      value={playbackIdx}
+                      aria-label="Simulation time step"
+                      onChange={(e) => {
+                        setPlaybackIdx(Number(e.target.value));
+                        setIsPlaying(false);
+                      }}
+                      className="w-full h-11 accent-[#bec6e0] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-2xs text-content-faint fs-numeric">
+                      <span>T+0 · breach initiation</span>
+                      <span>
+                        T+{simResults.timeline[simResults.timeline.length - 1]?.time_minutes} min ·
+                        end of window
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </TabPanel>
+
+            {/* Benchmark -------------------------------------------------- */}
+            <TabPanel id="benchmark" active={activeTab === "benchmark"}>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="fs-label">
+                    Flume dam break against the exact Ritter (1892) solution
+                  </p>
+                  {benchmarkData?.metrics && (
+                    <div className="flex items-center gap-2">
+                      <Badge tone="success">
+                        r = {benchmarkData.metrics.pearson_correlation}
+                      </Badge>
+                      <Badge tone="neutral">
+                        RMSE {benchmarkData.metrics.rmse_m} m
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+
+                {!benchmarkData?.chartData?.length ? (
+                  <EmptyState
+                    icon={<Activity className="w-7 h-7" />}
+                    title="Benchmark not loaded"
+                    description="Run a scenario, or open the Verification view, to compute the flume comparison."
+                  />
+                ) : (
+                  <div className="h-56 sm:h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={benchmarkData.chartData} margin={{ top: 8, right: 12, bottom: 20, left: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.07)" />
+                        <XAxis
+                          dataKey="time"
+                          tick={{ fontSize: 11, fill: "#9a9aa3" }}
+                          tickLine={false}
+                          label={{ value: "Time (s)", position: "insideBottom", offset: -12, fill: "#9a9aa3", fontSize: 11 }}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: "#9a9aa3" }}
+                          tickLine={false}
+                          width={52}
+                          label={{ value: "Depth (m)", angle: -90, position: "insideLeft", fill: "#9a9aa3", fontSize: 11 }}
+                        />
+                        <Tooltip contentStyle={CHART_TOOLTIP} />
+                        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                        <Line
+                          type="monotone"
+                          dataKey="analytical"
+                          stroke="#4ade80"
+                          strokeDasharray="5 3"
+                          strokeWidth={2}
+                          name="Ritter (1892) exact"
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="anuga"
+                          stroke="#adc6ff"
+                          strokeWidth={2}
+                          name="ANUGA 4.x SWE"
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                <Callout tone="info" title="What this comparison is, and is not">
+                  The reference is a closed-form solution, not a second numerical
+                  model. Delft3D-FLOW and PySPH appear in the problem statement but
+                  are <strong>not executed here</strong> — the Delft3D image carries
+                  source only and PySPH is not installed. No substitute curves are
+                  plotted. See <strong>Deliverables</strong> for the full status.
+                </Callout>
+              </div>
+            </TabPanel>
+
+            {/* Satellite -------------------------------------------------- */}
+            <TabPanel id="satellite" active={activeTab === "satellite"}>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="fs-label">
+                    Sentinel-1 SAR · Refined Lee filter · Otsu delineation
+                  </p>
+                  {satelliteData?.ground_truth_metrics ? (
+                    <div className="flex items-center gap-2">
+                      <Badge tone="success">
+                        IoU {satelliteData.ground_truth_metrics.overlap_percentage}%
+                      </Badge>
+                      <Badge tone="info">
+                        F1 {satelliteData.ground_truth_metrics.dice_f1}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <Badge tone="warning">Not verified</Badge>
+                  )}
+                </div>
+
+                {satelliteData?.status === "success" ? (
+                  <div className="space-y-3">
+                    <div className="fs-panel-solid p-4 space-y-3">
+                      <p className="fs-label">Scene processed</p>
+                      <p className="text-xs font-mono text-content break-all">
                         {satelliteData.scene?.id}
                       </p>
-                      <div className="grid grid-cols-3 gap-2 mt-1 font-data-mono text-[11px]">
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Acquired</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.scene?.datetime || "—"}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Orbit</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.scene?.orbit_direction || "—"}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Collection</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.scene?.collection || "—"}
-                          </span>
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <MiniFact label="Acquired" value={satelliteData.scene?.datetime} />
+                        <MiniFact label="Orbit" value={satelliteData.scene?.orbit_direction} />
+                        <MiniFact label="Collection" value={satelliteData.scene?.collection} />
                       </div>
                     </div>
 
-                    <div className="p-4 rounded-lg bg-surface-container-high/40 border border-white/5 flex flex-col gap-2">
-                      <div className="text-xs font-semibold text-primary">Detection &amp; Scoring</div>
-                      <div className="grid grid-cols-2 gap-2 font-data-mono text-[11px]">
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Otsu threshold</span>
-                          {/* Reported as relative: the STAC assets carry no
-                              calibration vector, so this is not an absolute
-                              backscatter level. */}
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.processing?.threshold || "—"}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Observed water</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.observed_area_km2 != null
-                              ? `${satelliteData.observed_area_km2} km²` : "—"}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Permanent water removed</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.reference_scene
+                    <div className="fs-panel-solid p-4 space-y-3">
+                      <p className="fs-label">Detection and scoring</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Reported as relative: the STAC assets carry no
+                            calibration vector, so this is not an absolute
+                            backscatter level. */}
+                        <MiniFact label="Otsu threshold" value={satelliteData.processing?.threshold} />
+                        <MiniFact
+                          label="Observed water"
+                          value={
+                            satelliteData.observed_area_km2 != null
+                              ? `${satelliteData.observed_area_km2} km²`
+                              : "—"
+                          }
+                        />
+                        <MiniFact
+                          label="Permanent water removed"
+                          value={
+                            satelliteData.reference_scene
                               ? `${satelliteData.processing?.permanent_water_pixels_removed ?? 0} px`
-                              : "no reference scene"}
-                          </span>
-                        </div>
-                        <div className="p-2 bg-black/30 rounded border border-white/5">
-                          <span className="text-on-surface-variant block text-[9px]">Verdict</span>
-                          <span className="text-on-surface font-bold">
-                            {satelliteData.ground_truth_metrics?.status || "—"}
-                          </span>
-                        </div>
+                              : "no reference scene"
+                          }
+                        />
+                        <MiniFact
+                          label="Verdict"
+                          value={satelliteData.ground_truth_metrics?.status}
+                        />
                       </div>
+
                       {satelliteData.water_polygon_geojson && (
-                        <button
+                        <Button
+                          size="sm"
+                          variant="secondary"
                           onClick={() => {
                             const blob = new Blob(
                               [JSON.stringify(satelliteData.water_polygon_geojson)],
-                              { type: 'application/geo+json' });
+                              { type: "application/geo+json" },
+                            );
                             const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
+                            const a = document.createElement("a");
                             a.href = url;
                             a.download = `${selectedDam}_observed_water.geojson`;
                             a.click();
                             window.URL.revokeObjectURL(url);
                           }}
-                          className="mt-1 self-start text-[10px] font-data-mono px-2 py-1 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
                         >
-                          Download observed water (.geojson)
-                        </button>
+                          <Download className="w-3.5 h-3.5" aria-hidden />
+                          Observed water (.geojson)
+                        </Button>
                       )}
                     </div>
-                  </>
-                ) : (
-                  <div className="p-4 rounded-lg bg-surface-container-high/40 border border-status-warning/30 flex flex-col gap-2">
-                    <div className="text-xs font-semibold text-status-warning">
-                      Verification unavailable — no score reported
-                    </div>
-                    <p className="text-xs text-on-surface-variant leading-relaxed">
-                      {satelliteData?.message ||
-                        "Run a simulation to produce an extent, then request verification."}
-                    </p>
-                    <p className="text-[10px] text-on-surface-variant/70 leading-relaxed">
-                      IoU and Dice are only meaningful against a real Sentinel-1
-                      acquisition over the simulated footprint. Where none is
-                      available the pipeline reports that rather than scoring
-                      against placeholder data.
-                    </p>
                   </div>
+                ) : (
+                  <Callout tone="warning" title="Verification unavailable — no score reported">
+                    {satelliteData?.message ??
+                      "Run a simulation to produce an extent, then request verification."}
+                    <br />
+                    <br />
+                    IoU and Dice are only meaningful against a real Sentinel-1
+                    acquisition over the simulated footprint. Where none is
+                    available the pipeline says so rather than scoring against
+                    placeholder data.
+                  </Callout>
                 )}
               </div>
-            )}
+            </TabPanel>
 
-            {/* TAB 5: DOWNSTREAM HADR IMPACT */}
-            {activeTab === 'hadr' && (
-              <div className="flex flex-col gap-2 overflow-x-auto">
-                <table className="w-full text-left text-xs font-data-mono">
-                  <thead>
-                    <tr className="border-b border-white/10 text-on-surface-variant text-[10px] font-label-caps">
-                      <th className="pb-2">Settlement / Village</th>
-                      <th className="pb-2">Chainage (km)</th>
-                      <th className="pb-2">Wave Arrival (T_arr)</th>
-                      <th className="pb-2">Peak Depth (h_max)</th>
-                      <th className="pb-2">USBR Hazard</th>
-                      <th className="pb-2">Evacuation Order</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(simResults?.hadr_settlements || []).map((v: any, idx: number) => (
-                      <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                        <td className="py-2.5 font-bold text-on-surface">{v.village_name}</td>
-                        <td className="py-2.5 text-secondary">{v.distance_km} km</td>
-                        <td className="py-2.5 text-status-warning font-bold">
-                          {v.wave_arrival_min == null ? "not reached" : `${v.wave_arrival_min} min`}
-                        </td>
-                        <td className="py-2.5 text-on-surface">{v.estimated_depth_m} m</td>
-                        <td className="py-2.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                            v.hazard_level === 'EXTREME'
-                              ? 'bg-status-emergency/20 text-status-emergency border-status-emergency/40'
-                              : v.hazard_level === 'NONE'
-                              ? 'bg-white/5 text-secondary border-white/10'
-                              : 'bg-status-warning/20 text-status-warning border-status-warning/40'
-                          }`}>
-                            {v.hazard_level}
-                          </span>
-                        </td>
-                        <td className="py-2.5">
-                          <span className={`font-bold text-[10px] flex items-center gap-1 ${
-                            v.evacuation_status === 'NO_INUNDATION'
-                              ? 'text-secondary'
-                              : 'text-status-emergency'
-                          }`}>
-                            {v.evacuation_status !== 'NO_INUNDATION' && (
-                              <AlertTriangle className="w-3 h-3" />
-                            )}
-                            {v.evacuation_status}
-                          </span>
-                        </td>
+            {/* Downstream impact ------------------------------------------ */}
+            <TabPanel id="hadr" active={activeTab === "hadr"}>
+              {!simResults?.hadr_settlements?.length ? (
+                <EmptyState
+                  icon={<Layers className="w-7 h-7" />}
+                  title="No downstream impact table"
+                  description="Run a scenario to score settlements along the reach."
+                />
+              ) : (
+                <div className="overflow-x-auto fs-scroll">
+                  <table className="w-full min-w-[720px] text-left text-xs">
+                    <caption className="sr-only">
+                      Downstream settlements, wave arrival, peak depth and hazard
+                      classification.
+                    </caption>
+                    <thead>
+                      <tr className="border-b border-edge">
+                        <th scope="col" className="fs-label pb-2 pr-3">Settlement</th>
+                        <th scope="col" className="fs-label pb-2 pr-3">Chainage</th>
+                        <th scope="col" className="fs-label pb-2 pr-3">Wave arrival</th>
+                        <th scope="col" className="fs-label pb-2 pr-3">Peak depth</th>
+                        <th scope="col" className="fs-label pb-2 pr-3">Hazard</th>
+                        <th scope="col" className="fs-label pb-2">Evacuation</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    </thead>
+                    <tbody>
+                      {simResults.hadr_settlements.map((v) => (
+                        <tr
+                          key={v.village_name}
+                          className="border-b border-edge/60 hover:bg-white/[0.03]"
+                        >
+                          <th
+                            scope="row"
+                            className="py-2.5 pr-3 font-semibold text-content"
+                          >
+                            {v.village_name}
+                          </th>
+                          <td className="py-2.5 pr-3 fs-numeric text-content-subtle">
+                            {v.distance_km} km
+                          </td>
+                          <td className="py-2.5 pr-3 fs-numeric">
+                            {v.wave_arrival_min == null ? (
+                              <span className="text-content-faint">not reached</span>
+                            ) : (
+                              <span className="text-warning">{v.wave_arrival_min} min</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3 fs-numeric text-content">
+                            {v.estimated_depth_m} m
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <Badge tone={hazardTone(v.hazard_level)}>
+                              {v.hazard_level}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5">
+                            <span
+                              className={
+                                v.evacuation_status === "NO_INUNDATION"
+                                  ? "text-content-subtle text-2xs font-bold"
+                                  : "text-danger text-2xs font-bold inline-flex items-center gap-1"
+                              }
+                            >
+                              {v.evacuation_status !== "NO_INUNDATION" && (
+                                <AlertTriangle className="w-3 h-3" aria-hidden />
+                              )}
+                              {v.evacuation_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabPanel>
+          </Panel>
+
+          {/* Provenance --------------------------------------------------- */}
+          {simResults?.terrain && (
+            <p className="text-2xs text-content-faint leading-relaxed pb-2">
+              Terrain: {simResults.terrain.dataset}, tile {simResults.terrain.tile} at{" "}
+              {simResults.terrain.cell_size_m} m. Grid{" "}
+              {simResults.hydrodynamics.grid_shape?.join(" × ")}. Solve took{" "}
+              {simResults.hydrodynamics.wall_time_s} s.
+            </p>
+          )}
+
+          {isSimulating && !simResults && (
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/3" />
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+function MiniFact({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="rounded bg-surface-sunken border border-edge px-2.5 py-2 min-w-0">
+      <p className="fs-label truncate">{label}</p>
+      <p className="text-xs text-content font-medium mt-0.5 break-words">
+        {value ?? "—"}
+      </p>
     </div>
   );
 }

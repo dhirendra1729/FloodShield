@@ -1,264 +1,349 @@
 "use client";
-import React, { useState } from 'react';
-import { LayoutDashboard, CloudRain, Shield, Smartphone, Users, LifeBuoy } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import dynamic from 'next/dynamic';
 
-import MapOverview from '@/components/MapOverview';
-import SafeSpotDashboard from '@/components/SafeSpotDashboard';
-import SmsDashboard from '@/components/SmsDashboard';
-import RainfallDashboard from '@/components/RainfallDashboard';
-import RecipientsDashboard from '@/components/RecipientsDashboard';
-import RescueDashboard from '@/components/RescueDashboard';
-import NewsDashboard from '@/components/NewsDashboard';
-import DataPipelineDashboard from '@/components/DataPipelineDashboard';
-import DamBreakStudio from '@/components/DamBreakStudio';
+import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import {
+  Waves,
+  Map as MapIcon,
+  FlaskConical,
+  ClipboardCheck,
+  Satellite,
+  Globe2,
+  Menu,
+  X,
+  Circle,
+} from "lucide-react";
 
-// Dynamically import LeafletMap for the global background
-const LeafletMap = dynamic(() => import('@/components/LeafletMap'), { 
+import DamBreakStudio from "@/components/DamBreakStudio";
+import VerificationView from "@/components/views/VerificationView";
+import DeliverablesView from "@/components/views/DeliverablesView";
+import { Segmented, Skeleton, type SegmentedOption } from "@/components/ui";
+import { cn } from "@/components/ui/cn";
+import { BASEMAP_IDS, BASEMAPS, type BasemapId } from "@/lib/basemaps";
+
+// The map pulls in Leaflet, georaster and the image-decoding path. Keep it out
+// of the initial bundle so the studio renders without waiting on any of it.
+const InundationMapView = dynamic(
+  () => import("@/components/views/InundationMapView"),
+  {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full flex-col items-center justify-center bg-background">
-        <p className="text-primary font-bold animate-pulse">Initializing Map Engine...</p>
+      <div className="h-full w-full flex items-center justify-center">
+        <div className="w-full max-w-md space-y-3">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-[420px] w-full" />
+        </div>
       </div>
-    )
-});
+    ),
+  },
+);
+
+type ViewId = "studio" | "map" | "verification" | "deliverables";
+
+interface NavItem {
+  id: ViewId;
+  label: string;
+  short: string;
+  icon: typeof Waves;
+  /** Rendered in the rail to explain what the view is for. */
+  blurb: string;
+}
+
+const NAV: NavItem[] = [
+  {
+    id: "studio",
+    label: "Breach Studio",
+    short: "Studio",
+    icon: Waves,
+    blurb: "Configure a dam-break scenario and run the 2D solver",
+  },
+  {
+    id: "map",
+    label: "Inundation Map",
+    short: "Map",
+    icon: MapIcon,
+    blurb: "Downstream flood extent, depth and land cover",
+  },
+  {
+    id: "verification",
+    label: "Verification",
+    short: "Verify",
+    icon: FlaskConical,
+    blurb: "Solver results against closed-form and historical records",
+  },
+  {
+    id: "deliverables",
+    label: "Deliverables",
+    short: "Deliverables",
+    icon: ClipboardCheck,
+    blurb: "Traceability against problem statement SIH26161",
+  },
+];
+
+const BASEMAP_OPTIONS: SegmentedOption<BasemapId>[] = BASEMAP_IDS.map((id) => ({
+  value: id,
+  label: BASEMAPS[id].label,
+}));
+
+const VIEW_IDS = NAV.map((n) => n.id);
+
+/**
+ * Reads `?view=` off the address bar. Done through `window.location` rather
+ * than `useSearchParams` because the latter opts the whole page out of static
+ * prerendering unless it is wrapped in a Suspense boundary — which would cost
+ * more than the parameter is worth. The page is already a client component, so
+ * this runs only in the browser and never during the prerender pass.
+ */
+function viewFromLocation(): ViewId | null {
+  if (typeof window === "undefined") return null;
+  const requested = new URLSearchParams(window.location.search).get("view");
+  return VIEW_IDS.includes(requested as ViewId) ? (requested as ViewId) : null;
+}
+
+/** Polls the backend so the shell can say plainly whether it is connected. */
+function useBackendHealth() {
+  const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const ping = async () => {
+      try {
+        const res = await fetch("/api/health", { cache: "no-store" });
+        if (!cancelled) setOnline(res.ok);
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    };
+
+    ping();
+    const timer = setInterval(ping, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  return online;
+}
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState('dam-break');
-  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-  
-  // GLOBAL MAP STATE
-  const [layers, setLayers] = useState({
-    dem: false,
-    lulc: false,
-    buildings: false,
-    roads: true,
-    shelters: false,
-    floodDepth: false,
-    aiSafeSpots: true
-  });
-  
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [aiSafeSpots, setAiSafeSpots] = useState<any[]>([]);
-  const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null);
-  const [destinationName, setDestinationName] = useState<string | null>(null);
-  const [smsContext, setSmsContext] = useState<any>(null);
-  const [activeRescueGroup, setActiveRescueGroup] = useState<any>(null);
-  const [strandedGroups, setStrandedGroups] = useState<any[]>([]);
+  const [view, setView] = useState<ViewId>("studio");
+  const [basemap, setBasemap] = useState<BasemapId>("satellite");
+  const [railOpen, setRailOpen] = useState(false);
+  const backendOnline = useBackendHealth();
 
-  const handleNavigateToSms = (context: any) => {
-    setSmsContext(context);
-    setActiveTab('sms');
-  };
+  const active = NAV.find((n) => n.id === view) ?? NAV[0];
 
-  const navItems = [
-    { id: 'dam-break', label: 'Dam Breach Studio', icon: 'waves' },
-    { id: 'overview', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'meteorology', label: 'Simulations', icon: 'model_training' },
-    { id: 'safe-spot', label: 'Live Map', icon: 'map' },
-    { id: 'rescue', label: 'Dispatch', icon: 'emergency_share' },
-    { id: 'pipeline', label: 'Data Pipeline', icon: 'database' },
-  ];
+  // Adopt ?view= once, after mount, so a view can be linked to directly.
+  useEffect(() => {
+    const requested = viewFromLocation();
+    if (requested) setView(requested);
+  }, []);
+
+  const selectView = useCallback((id: ViewId) => {
+    setView(id);
+    setRailOpen(false);
+
+    // Keep the address bar in step, so the current view can be copied out of
+    // it or reloaded. replaceState rather than pushState: switching tabs is not
+    // navigation, and pushing an entry per tab would make the back button walk
+    // backwards through views the user has already left.
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", id);
+    window.history.replaceState(null, "", url.toString());
+  }, []);
 
   return (
-    <div className="bg-background text-on-background font-body-md h-screen w-screen overflow-hidden flex flex-col antialiased">
-        {/* Global Map Canvas */}
-      <div className="absolute inset-0 z-0">
-        <LeafletMap 
-            layers={layers} 
-            aiSafeSpots={activeTab === "safe-spot" ? aiSafeSpots : undefined} 
-            userLocation={userLocation}
-            setUserLocation={activeTab === "safe-spot" ? setUserLocation : undefined}
-            routeGeoJSON={activeTab === "safe-spot" ? routeGeoJSON : undefined}
-            strandedGroups={activeTab === "rescue" ? strandedGroups : undefined}
-            activeRescueGroup={activeTab === "rescue" ? activeRescueGroup : undefined}
-            showRescueLayer={activeTab === "rescue"}
-        />
-      </div>
+    <div className="h-dvh w-full flex flex-col overflow-hidden bg-surface-base">
+      <a
+        href="#workspace"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-brand focus:text-surface-base focus:rounded"
+      >
+        Skip to workspace
+      </a>
 
-      {/* Top Navigation Bar */}
-      <header className="bg-surface-glass fixed top-0 w-full z-50 backdrop-blur-24 border-b border-white/10 shadow-2xl flex justify-between items-center h-12 px-6">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
-            className="text-on-surface-variant hover:text-primary hover:bg-white/5 p-1.5 rounded-full transition-colors active:scale-95 flex items-center justify-center cursor-pointer"
+      {/* ------------------------------------------------------------------ */}
+      {/* Header                                                              */}
+      {/* ------------------------------------------------------------------ */}
+      <header className="shrink-0 h-14 px-4 sm:px-5 flex items-center justify-between gap-3 border-b border-edge bg-surface-sunken/90 backdrop-blur z-40">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => setRailOpen((v) => !v)}
+            aria-expanded={railOpen}
+            aria-controls="primary-navigation"
+            aria-label={railOpen ? "Close navigation" : "Open navigation"}
+            className="lg:hidden h-10 w-10 -ml-1.5 flex items-center justify-center rounded text-content-muted hover:text-content hover:bg-white/5"
           >
-            <span className="material-symbols-outlined text-[24px]">menu</span>
+            {railOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
-          <span className="font-display-lg text-[24px] font-black text-primary tracking-tighter">FloodShield</span>
+
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-8 w-8 shrink-0 rounded bg-brand-wash border border-brand/25 flex items-center justify-center">
+              <Satellite className="w-4 h-4 text-brand" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-content tracking-tight leading-none">
+                FloodShield
+              </h1>
+              <p className="text-2xs text-content-subtle leading-none mt-1 truncate">
+                Dam-Break Hydrodynamics · SIH26161 · NTRO
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            className={`hover:bg-white/5 p-1.5 rounded-full transition-colors active:scale-95 flex items-center justify-center cursor-pointer ${isRightPanelOpen ? 'text-primary' : 'text-on-surface-variant'}`}
-            title="Toggle Operational Log"
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="hidden sm:block">
+            <Segmented
+              label="Base map"
+              options={BASEMAP_OPTIONS}
+              value={basemap}
+              onChange={setBasemap}
+            />
+          </div>
+
+          <div
+            className="flex items-center gap-1.5 pl-3 border-l border-edge"
+            role="status"
+            aria-live="polite"
           >
-            <span className="material-symbols-outlined text-[24px]">feed</span>
-          </button>
+            <Circle
+              className={cn(
+                "w-2 h-2",
+                backendOnline === null && "fill-content-faint text-content-faint",
+                backendOnline === true && "fill-success text-success",
+                backendOnline === false && "fill-danger text-danger",
+              )}
+              aria-hidden
+            />
+            <span className="text-2xs font-medium text-content-subtle whitespace-nowrap">
+              {backendOnline === null
+                ? "Checking…"
+                : backendOnline
+                  ? "Solver online"
+                  : "Solver offline"}
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* Main Workspace Area */}
-      <main className="relative z-20 flex-1 flex mt-12 p-4 gap-4 h-[calc(100vh-48px)] pointer-events-none">
-        
-        {/* Left Panel: Side Navigation */}
-        <AnimatePresence>
-          {isLeftPanelOpen && (
-            <motion.nav 
-              initial={{ x: -300, opacity: 0, width: 0 }}
-              animate={{ x: 0, opacity: 1, width: 224 }}
-              exit={{ x: -300, opacity: 0, width: 0 }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
-              className="bg-surface-glass backdrop-blur-24 border border-white/10 shadow-xl flex flex-col py-4 rounded-lg h-full pointer-events-auto shrink-0"
-            >
-          <div className="px-4 mb-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-8 rounded bg-surface-container-highest border border-white/10 flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary text-[18px]">radar</span>
-              </div>
-              <div>
-                <h2 className="font-title-lg text-title-lg text-primary leading-tight">Mission Control</h2>
-                <p className="font-label-caps text-[10px] text-status-warning mt-1">Active Protocol: Alpha</p>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-2">
-            {navItems.map((item) => {
-              const isActive = activeTab === item.id;
+      <div className="flex-1 flex min-h-0 relative">
+        {/* ---------------------------------------------------------------- */}
+        {/* Navigation rail                                                   */}
+        {/* ---------------------------------------------------------------- */}
+        <nav
+          id="primary-navigation"
+          aria-label="Workspace"
+          className={cn(
+            "absolute inset-y-0 left-0 z-30 w-64 shrink-0 flex-col border-r border-edge",
+            "bg-surface-sunken/95 backdrop-blur lg:static lg:flex lg:bg-surface-sunken/60",
+            "transition-transform duration lg:transition-none",
+            railOpen ? "flex translate-x-0" : "hidden -translate-x-full lg:flex lg:translate-x-0",
+          )}
+        >
+          <ul className="flex-1 overflow-y-auto fs-scroll p-3 space-y-1">
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              const isActive = item.id === view;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full rounded-lg mx-1 flex items-center gap-3 px-3 py-2.5 mb-1.5 transition-all hover:translate-x-1 ${isActive ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high'}`}
-                >
-                  <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-                  <span className="font-body-md text-sm font-semibold">{item.label}</span>
-                </button>
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectView(item.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "w-full flex items-start gap-3 rounded px-3 py-3 text-left min-h-11",
+                      "transition-colors duration-fast",
+                      isActive
+                        ? "bg-brand-wash text-brand border border-brand/25"
+                        : "text-content-muted border border-transparent hover:bg-white/5 hover:text-content",
+                    )}
+                  >
+                    <Icon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-tight">
+                        {item.label}
+                      </span>
+                      <span
+                        className={cn(
+                          "block text-2xs leading-snug mt-1",
+                          isActive ? "text-brand/70" : "text-content-faint",
+                        )}
+                      >
+                        {item.blurb}
+                      </span>
+                    </span>
+                  </button>
+                </li>
               );
             })}
+          </ul>
+
+          <div className="shrink-0 p-3 border-t border-edge">
+            <p className="text-2xs text-content-faint leading-relaxed">
+              Bhuragaon reach, Brahmaputra
+              <br />
+              Raster extent 26.25–26.53° N, 92.00–92.55° E
+            </p>
           </div>
-        </motion.nav>
+        </nav>
+
+        {railOpen && (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setRailOpen(false)}
+            className="absolute inset-0 z-20 bg-black/50 lg:hidden"
+          />
         )}
-        </AnimatePresence>
 
-        {/* Center Space (Transparent, for map interaction) */}
-        <div className="flex-1 relative flex flex-col justify-end pointer-events-none">
-           {/* Render floating panels here based on tab, but pointer-events-auto so they can be clicked */}
-           <div className="pointer-events-none flex items-center justify-center h-full w-full">
-              {/* Dynamic Content Panel */}
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="w-full max-w-[1600px] h-full max-h-full overflow-hidden flex flex-col pointer-events-none"
-                >
-                    {activeTab === 'dam-break' && <DamBreakStudio />}
-                    {activeTab === 'overview' && <MapOverview layers={layers} setLayers={setLayers} />}
-                    {/* Meteorology -> Simulations Dashboard */}
-                    {activeTab === 'meteorology' && <RainfallDashboard setLayers={setLayers} setAiSafeSpots={setAiSafeSpots} />}
-                    {/* Safe-spot -> Live Map controls */}
-                    {activeTab === 'safe-spot' && (
-                      <SafeSpotDashboard 
-                        setLayers={setLayers}
-                        userLocation={userLocation}
-                        setUserLocation={setUserLocation}
-                        routeGeoJSON={routeGeoJSON}
-                        setAiSafeSpots={setAiSafeSpots}
-                        setRouteGeoJSON={setRouteGeoJSON}
-                        destinationName={destinationName}
-                        setDestinationName={setDestinationName}
-                        onNavigateToSms={handleNavigateToSms} 
-                      />
+        {/* ---------------------------------------------------------------- */}
+        {/* Workspace                                                         */}
+        {/* ---------------------------------------------------------------- */}
+        <main
+          id="workspace"
+          className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden"
+        >
+          {/* Compact view switcher for narrow screens, where the rail is hidden. */}
+          <div className="lg:hidden shrink-0 border-b border-edge bg-surface-sunken/60 px-2 overflow-x-auto fs-scroll">
+            <div className="flex items-center gap-1 min-w-max">
+              {NAV.map((item) => {
+                const isActive = item.id === view;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => selectView(item.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "h-11 px-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors duration-fast",
+                      isActive
+                        ? "border-brand text-brand"
+                        : "border-transparent text-content-subtle hover:text-content",
                     )}
-                    {/* Rescue -> Dispatch Panel (3 columns) */}
-                    {activeTab === 'rescue' && (
-                      <div className="flex flex-row w-full h-full gap-6 justify-between">
-                        <RescueDashboard 
-                          onSelectGroup={(group) => {
-                            setActiveRescueGroup(group);
-                            setSmsContext({ 
-                                phone_number: "+1 (555) 019-" + group.id, 
-                                message: "", 
-                                destinationName: "Unknown", 
-                                destinationCoords: [group.latitude, group.longitude] 
-                            });
-                          }} 
-                          onStrandedLoaded={(groups) => setStrandedGroups(groups)}
-                        />
-                        <div className="flex-1 flex flex-col justify-end pb-6 pointer-events-none">
-                            {activeRescueGroup && (
-                               <div className="bg-surface-glass backdrop-blur-24 rounded-xl p-6 shadow-xl flex-shrink-0 pointer-events-auto border border-white/10">
-                                  <div className="flex justify-between items-start mb-4">
-                                      <div>
-                                          <div className="flex items-center gap-2 mb-1">
-                                              <span className="font-headline-md text-headline-md text-on-surface">LOC-{activeRescueGroup.id}</span>
-                                              <span className={`font-label-caps text-label-caps px-2 py-0.5 rounded ${activeRescueGroup.tier === 'CRITICAL' ? 'bg-status-emergency/20 text-status-emergency border border-status-emergency/50' : 'bg-status-warning/20 text-status-warning border border-status-warning/50'}`}>{activeRescueGroup.tier} PRIORITY</span>
-                                          </div>
-                                          <p className="font-data-mono text-data-mono text-on-surface-variant">Loc: {activeRescueGroup.latitude.toFixed(4)}° N, {activeRescueGroup.longitude.toFixed(4)}° W | Elev: {activeRescueGroup.elevation}m</p>
-                                      </div>
-                                      <button className="bg-primary-container text-primary border border-primary/30 px-4 py-2 rounded hover:bg-primary/10 transition-colors font-label-caps text-label-caps flex items-center gap-2 cursor-pointer">
-                                          <span className="material-symbols-outlined text-sm">flight_takeoff</span> DISPATCH AIR
-                                      </button>
-                                  </div>
-                                  <div className="bg-surface-container-lowest border border-white/10 rounded p-4">
-                                      <div className="flex items-center gap-2 mb-2 text-secondary">
-                                          <span className="material-symbols-outlined text-sm">smart_toy</span>
-                                          <span className="font-label-caps text-label-caps">AI SITREP GENERATED</span>
-                                      </div>
-                                      <p className="font-body-md text-body-md text-on-surface/90 leading-relaxed">
-                                          Location identified as high risk. Elevation data indicates {activeRescueGroup.elevation}m above sea level, with surrounding water levels rising. Immediate evacuation recommended. Nearest capable unit is H-4 (ETA 8m).
-                                      </p>
-                                  </div>
-                               </div>
-                            )}
-                        </div>
-                        <SmsDashboard context={smsContext} />
-                      </div>
-                    )}
-                    {/* SMS Panel (Standalone) */}
-                    {activeTab === 'sms' && (
-                      <div className="flex justify-center items-center h-full">
-                         <SmsDashboard context={smsContext} />
-                      </div>
-                    )}
-                    {/* Data Pipeline Panel */}
-                    {activeTab === 'pipeline' && (
-                      <DataPipelineDashboard />
-                    )}
-                </motion.div>
-              </AnimatePresence>
-           </div>
-        </div>
-
-        {/* Right Panel: Operational Updates */}
-        <AnimatePresence>
-        {isRightPanelOpen && (
-          <motion.aside 
-            initial={{ x: 400, opacity: 0, width: 0 }}
-            animate={{ x: 0, opacity: 1, width: 320 }}
-            exit={{ x: 400, opacity: 0, width: 0 }}
-            transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
-            className="flex flex-col gap-4 pointer-events-auto h-full overflow-hidden shrink-0"
-          >
-          {/* Use the NewsDashboard component styled with Stitch wrappers */}
-          <div className="bg-surface-glass backdrop-blur-24 border border-white/10 rounded-lg p-4 shadow-xl flex-1 flex flex-col overflow-hidden">
-             <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2 shrink-0">
-               <h3 className="font-title-lg text-lg text-on-surface">Information</h3>
-               <span className="material-symbols-outlined text-on-surface-variant text-[20px]">format_list_bulleted</span>
-             </div>
-             <div className="flex-1 overflow-y-auto">
-               <NewsDashboard />
-             </div>
+                  >
+                    {item.short}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </motion.aside>
-        )}
-        </AnimatePresence>
 
-      </main>
+          <div className="flex-1 min-h-0 overflow-hidden animate-fade-up" key={view}>
+            {view === "studio" && <DamBreakStudio />}
+            {view === "map" && <InundationMapView basemap={basemap} />}
+            {view === "verification" && <VerificationView />}
+            {view === "deliverables" && <DeliverablesView />}
+          </div>
+        </main>
+      </div>
+
+      {/* Screen-reader summary of the current view, so route changes are announced. */}
+      <p className="sr-only" aria-live="polite">
+        {active.label} view. {active.blurb}
+      </p>
     </div>
   );
 }

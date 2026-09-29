@@ -49,6 +49,27 @@ export const DEM_RASTER_BOUNDS: [[number, number], [number, number]] = [
   [26.5329166, 92.5465277],
 ];
 
+// Leaflet animates in JavaScript, so the `prefers-reduced-motion` rule in
+// globals.css never reaches these calls — a CSS animation block cannot stop a
+// requestAnimationFrame tween. Ask the same question directly, and jump
+// instead of gliding when the user has asked for less motion.
+function glideTo(
+  map: L.Map,
+  target: L.LatLngExpression,
+  zoom: number,
+  seconds: number,
+) {
+  const reduced =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (reduced) {
+    map.setView(target, zoom);
+    return;
+  }
+  map.flyTo(target, zoom, { duration: seconds });
+}
+
 const PrecipitationHeatmap = ({ rainfall }: { rainfall: number | null }) => {
   const map = useMap();
 
@@ -132,7 +153,7 @@ const RasterLayer = ({ url, options }: { url: string; options?: any }) => {
     <button 
       onClick={(e) => { 
         e.preventDefault(); 
-        map.flyTo(center, zoom, { duration: 1.5 }); 
+        glideTo(map, center, zoom, 1.5);
       }}
       className="absolute z-[1000] cursor-pointer bg-white hover:bg-gray-50 rounded-[12px] flex items-center justify-center w-[44px] h-[44px]"
       style={{ left: '66px', bottom: '18px', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }}
@@ -150,7 +171,17 @@ const RasterLayer = ({ url, options }: { url: string; options?: any }) => {
   );
 };
 
-export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userLocation, setUserLocation, routeGeoJSON, strandedGroups, activeRescueGroup, showRescueLayer }: { layers: any, hoveredRainfall?: number | null, aiSafeSpots?: any[], userLocation?: [number, number] | null, setUserLocation?: (loc: [number, number]) => void, routeGeoJSON?: any, strandedGroups?: any[], activeRescueGroup?: any, showRescueLayer?: boolean }) {
+// ---------------------------------------------------------------------------
+// Base maps: see src/lib/basemaps.ts for the catalogue and why the CARTO layer
+// it replaces was showing an "API KEY REQUIRED" watermark.
+//
+// The definitions live in their own module because Leaflet reads `window` at
+// import time — importing these constants from here would pull Leaflet into the
+// server bundle and break prerendering.
+// ---------------------------------------------------------------------------
+import { BASEMAPS, type BasemapId } from "@/lib/basemaps";
+
+export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userLocation, setUserLocation, routeGeoJSON, strandedGroups, activeRescueGroup, showRescueLayer, basemap = "satellite" }: { layers: any, hoveredRainfall?: number | null, aiSafeSpots?: any[], userLocation?: [number, number] | null, setUserLocation?: (loc: [number, number]) => void, routeGeoJSON?: any, strandedGroups?: any[], activeRescueGroup?: any, showRescueLayer?: boolean, basemap?: BasemapId }) {
   const bhuragaonPosition = PILOT_BASIN_CENTER;
   
   const [roadsData, setRoadsData] = useState(null);
@@ -175,7 +206,7 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
   // Fly to active rescue group
   useEffect(() => {
       if (activeRescueGroup && mapRef.current) {
-          mapRef.current.flyTo([activeRescueGroup.lat, activeRescueGroup.lng], 16, { duration: 1.5 });
+          glideTo(mapRef.current, [activeRescueGroup.lat, activeRescueGroup.lng], 16, 1.5);
       }
   }, [activeRescueGroup]);
 
@@ -229,22 +260,24 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
           Map Engine Received Rainfall: {hoveredRainfall} mm
         </div>
       )}
-      <MapContainer 
-        center={bhuragaonPosition} 
-        zoom={13} 
+      <MapContainer
+        center={bhuragaonPosition}
+        zoom={13}
         className="h-full w-full"
         zoomControl={false}
-        attributionControl={false}
         ref={mapRef}
       >
         <MapClickHandler setUserLocation={setUserLocation} />
         <ZoomControl position="bottomleft" />
         <ResetViewButton center={bhuragaonPosition} zoom={13} />
         
-        {/* Base Map Layer */}
+        {/* Base Map Layer — key is what forces Leaflet to swap tiles cleanly
+            when the basemap changes, rather than layering the two. */}
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          key={basemap}
+          attribution={BASEMAPS[basemap].attribution}
+          url={BASEMAPS[basemap].url}
+          maxZoom={BASEMAPS[basemap].maxZoom}
         />
 
         {/* Raster Layer: DEM */}
@@ -256,9 +289,16 @@ export default function LeafletMap({ layers, hoveredRainfall, aiSafeSpots, userL
 
 
 
-        {/* Raster Layer: ANUGA Peak Flood Depth */}
+        {/* Raster: runoff flood estimate.
+            This is the flat-water (bathtub) output of the rainfall/runoff
+            module, not an ANUGA result. It was previously labelled "ANUGA Peak
+            Flood Depth", which credited a shallow-water solve that had not run;
+            the bathtub raster is produced by find_safe_spots_from_dem, which
+            fits one still-water surface from peak discharge. Solved depth and
+            velocity fields come from /api/dam/simulate and are rendered in the
+            Breach Studio. */}
         {layers.floodDepth && (
-          <ImageOverlay 
+          <ImageOverlay
             url={`/data/flood_depth.png?t=${new Date().getTime()}`}
             bounds={DEM_RASTER_BOUNDS}
             opacity={0.7}
