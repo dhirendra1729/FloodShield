@@ -287,30 +287,49 @@ def _read_window(href: str, bbox: Tuple[float, float, float, float],
     import rasterio
     from rasterio.enums import Resampling
     from rasterio.transform import Affine
-    from rasterio.warp import transform_bounds
     from rasterio.windows import Window, from_bounds
+    from rasterio.vrt import WarpedVRT
+    from rasterio.env import Env
 
-    url = href if href.startswith("/vsi") else f"/vsicurl/{href}"
+    if href.startswith("/vsi"):
+        url = href
+    elif href.startswith("s3://"):
+        url = f"/vsis3/{href[5:]}"
+    else:
+        url = f"/vsicurl/{href}"
 
-    with rasterio.open(url) as src:
-        left, bottom, right, top = transform_bounds("EPSG:4326", src.crs, *bbox)
-        win = from_bounds(left, bottom, right, top, src.transform)
-        win = win.intersection(Window(0, 0, src.width, src.height))
-        if win.width < 1 or win.height < 1:
-            raise ValueError("area of interest falls outside the scene footprint")
+    with Env(aws_no_sign_request=True):
+        with rasterio.open(url) as src:
+            # If CRS is missing or uses GCPs (common in Sentinel-1 GRD),
+            # WarpedVRT reprojects on-the-fly to EPSG:4326 using GCPs.
+            if src.crs is None or str(src.crs).upper() != "EPSG:4326":
+                vrt_ctx = WarpedVRT(src, crs="EPSG:4326")
+            else:
+                vrt_ctx = None
 
-        scale = min(1.0, max_px / max(win.width, win.height))
-        out_h = max(1, int(round(win.height * scale)))
-        out_w = max(1, int(round(win.width * scale)))
+            reader = vrt_ctx if vrt_ctx is not None else src
+            try:
+                min_lon, min_lat, max_lon, max_lat = bbox
+                win = from_bounds(min_lon, min_lat, max_lon, max_lat, reader.transform)
+                win = win.intersection(Window(0, 0, reader.width, reader.height))
+                if win.width < 1 or win.height < 1:
+                    raise ValueError("area of interest falls outside the scene footprint")
 
-        data = src.read(1, window=win, out_shape=(out_h, out_w),
-                        resampling=Resampling.bilinear).astype("float64")
+                scale = min(1.0, max_px / max(win.width, win.height))
+                out_h = max(1, int(round(win.height * scale)))
+                out_w = max(1, int(round(win.width * scale)))
 
-        transform = (src.transform
-                     * Affine.translation(win.col_off, win.row_off)
-                     * Affine.scale(win.width / out_w, win.height / out_h))
+                data = reader.read(1, window=win, out_shape=(out_h, out_w),
+                                resampling=Resampling.bilinear).astype("float64")
 
-        return data, transform, str(src.crs), src.nodata
+                transform = (reader.transform
+                            * Affine.translation(win.col_off, win.row_off)
+                            * Affine.scale(win.width / out_w, win.height / out_h))
+
+                return data, transform, str(reader.crs), reader.nodata
+            finally:
+                if vrt_ctx is not None:
+                    vrt_ctx.close()
 
 
 # ---------------------------------------------------------------------------
@@ -451,8 +470,17 @@ def fetch_flood_extent(lat: float, lon: float,
 
     area_km2 = None
     try:
-        px = abs(transform.a * transform.e) - abs(transform.b * transform.d)
-        area_km2 = float(flood.sum() * px / 1e6)
+        if crs and "4326" in str(crs):
+            mid_lat = (bbox[1] + bbox[3]) / 2.0
+            deg_lat_m = 111139.0
+            deg_lon_m = 111139.0 * np.cos(np.radians(mid_lat))
+            d_lon = abs(transform.a)
+            d_lat = abs(transform.e)
+            pixel_area_m2 = (d_lon * deg_lon_m) * (d_lat * deg_lat_m)
+            area_km2 = float(flood.sum() * pixel_area_m2 / 1e6)
+        else:
+            px = abs(transform.a * transform.e) - abs(transform.b * transform.d)
+            area_km2 = float(flood.sum() * px / 1e6)
     except Exception:
         pass
 

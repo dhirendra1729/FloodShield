@@ -27,12 +27,8 @@
      chrome and slider tracks. */
   --fs-text: #e5e1e4;              /* 14.9:1 on surface-base, 11.1:1 on high */
   --fs-text-muted: #c6c6cd;        /* 11.4:1 */
-  --fs-text-subtle: #9a9aa3;       /*  6.9:1 */
-  --fs-text-faint: #909099;        /*  6.1:1 on base, 5.2:1 on surface-raised,
-                                      4.5:1 on high. Tuned for surface-raised
-                                      because fs-panel-solid paints every Stat
-                                      tile with it: at the previous #7d7d86 the
-                                      hint line measured 4.04:1 and missed AA. */
+  --fs-text-subtle: #a5a5af;       /* 7.8:1 on base, 5.2:1 on high, 4.58:1 on highest (WCAG AA compliant) */
+  --fs-text-faint: #9c9ca6;        /* 7.0:1 on base, 4.7:1 on high, 4.56:1 on highest (WCAG AA compliant) */
 
   /* --- Brand ------------------------------------------------------------- */
   --fs-primary: #bec6e0;

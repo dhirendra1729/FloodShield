@@ -576,6 +576,12 @@ def export_shapefile(req: ExportGisRequest):
         dam_name = cached["dam_name"]
         
     zip_bytes = generate_shapefile_zip(grid, bounds, dam_name)
+    if zip_bytes is None:
+        return Response(
+            content=json.dumps({"detail": "No inundation in grid to export"}),
+            status_code=400,
+            media_type="application/json"
+        )
     clean_name = dam_name.lower().replace(" ", "_")[:20]
     
     return Response(
@@ -598,14 +604,22 @@ def export_kml(req: ExportGisRequest):
         dam_name = req.dam_name
         dam_coords = (22.7667, 70.8667)
         stats = {"max_depth_m": 4.2, "inundated_area_km2": 18.5}
+        provenance = "Default Machchhu-II benchmark grid for preview"
     else:
         grid = cached["depth_grid"]
         bounds = cached["bounds"]
         dam_name = cached["dam_name"]
         dam_coords = cached.get("dam_coords", (22.7667, 70.8667))
         stats = cached.get("stats", {})
+        provenance = "Simulated via the FloodShield ANUGA 4.0.1 2D shallow-water solver for SIH26161 (NTRO)"
         
-    kml_content = generate_kml(grid, bounds, dam_name, dam_coords, stats)
+    kml_content = generate_kml(grid, bounds, dam_name, dam_coords, stats, provenance=provenance)
+    if kml_content is None:
+        return Response(
+            content=json.dumps({"detail": "No inundation in grid to export"}),
+            status_code=400,
+            media_type="application/json"
+        )
     clean_name = dam_name.lower().replace(" ", "_")[:20]
     
     return Response(

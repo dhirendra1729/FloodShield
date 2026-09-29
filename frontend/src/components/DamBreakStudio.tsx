@@ -320,6 +320,9 @@ export default function DamBreakStudio({ onSimulationComplete }: DamBreakStudioP
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dam_name: damDetails?.name ?? selectedDam }),
         });
+        if (!res.ok) {
+          throw new Error(`Export failed with HTTP ${res.status}`);
+        }
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
